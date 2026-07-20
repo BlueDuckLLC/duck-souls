@@ -1,11 +1,19 @@
 {
-  "_note": "KIE/Suno V5 instrumental. 10/13 tracks downloaded + trimmed to ~48s loops (loudnorm -18 LUFS, seam fades). music.js lazy-loads audio/<track>.mp3 and degrades silently if absent.",
-  "downloaded": ["title","explore","judgment","trance","dead","cutscene","boss_leviathan","boss_inquisitor","boss_king","boss_abbot"],
-  "credit_blocked": {
-    "_reason": "KIE account ran out of credits mid-batch. Top up at kie.ai, then re-generate these 3 boss themes and drop them in audio/ (music.js picks them up automatically).",
-    "boss_prism": "crystalline bright-menace boss, shimmering refracting synths, sharp luminous danger, looping, no vocals",
-    "boss_maw": "heavy collapsing drone boss, deep crushing sub bass, gravity black-hole dread, slow menace, looping, no vocals",
-    "boss_duo": "dual interweaving boss battle, two call-and-response melodic lines, twin symmetrical tension, driving, looping, no vocals"
-  },
-  "recipe": "suno_generate_music(customMode:true, instrumental:true, model:V5, style:<above>, title:<track>) -> wait_for_task -> curl audioUrl -> ffmpeg -ss 10 -t 48 -af loudnorm=I=-18:TP=-1.5,afade... -> audio/<track>.mp3"
+  "_note": "KIE/Suno V5 instrumental. ALL 13/13 tracks downloaded + trimmed to ~48s loops (loudnorm -18 LUFS, seam fades). music.js lazy-loads audio/<track>.mp3.",
+  "downloaded": [
+    "title",
+    "explore",
+    "judgment",
+    "trance",
+    "dead",
+    "cutscene",
+    "boss_leviathan",
+    "boss_inquisitor",
+    "boss_king",
+    "boss_abbot",
+    "boss_prism",
+    "boss_maw",
+    "boss_duo"
+  ],
+  "credit_blocked": []
 }
