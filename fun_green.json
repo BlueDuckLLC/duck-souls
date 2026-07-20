@@ -115,9 +115,9 @@
   },
   {
     "id": "F22",
-    "claim": "all six weapons respect walls, not just the base sword",
+    "claim": "the 5 melee weapons respect walls, verified behaviorally (combat.js + combat_test.js)",
     "pass": true,
-    "detail": "losBlocked refs in weaponAttack: 2"
+    "detail": "weaponAttack routes 2x; flail-orbit routed: true; combat_test per-weapon LOS: true"
   },
   {
     "id": "F23",

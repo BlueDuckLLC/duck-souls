@@ -994,7 +994,7 @@ function weaponAttack(kind) {
   const baseA = Math.atan2(p.dir.y, p.dir.x);
   if (kind === 'rapier') {
     // fast precise short stab — reuse the base slash arc but on rapier reach/cd
-    slashCore(w.reach, w.dmg, 0.35);
+    slashCore(w.reach, w.dmg, 0.35, 'rapier');
     G.wfx = { kind, a: baseA, t: 0.10, reach: w.reach };
     SFX.slash();
   } else if (kind === 'whip') {
@@ -1003,9 +1003,9 @@ function weaponAttack(kind) {
     let hit = false;
     for (const e of G.enemies) {
       if (e.telegraph > 0) continue;
+      // reach + dead-zone + line-of-sight from the tested combat module; then the crack angle
+      if (!Combat.weaponHits('whip', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, w.reach, isSolidCell)) continue;
       const d = Math.hypot(e.x - p.x, e.y - p.y);
-      if (d < 4 || d > w.reach) continue; // dead zone + max reach
-      if (losBlocked(p.x, p.y, e.x, e.y)) continue;
       if (Math.abs(angDiff(Math.atan2(e.y - p.y, e.x - p.x), a)) < 0.24) {
         e.hp -= w.dmg; e.flash = 0.15; e.kx = (e.x - p.x) / d * 30; e.ky = (e.y - p.y) / d * 30; burst(e.x, e.y, e.ci, 6, 14, 0.3); hit = true; if (e.hp <= 0) killEnemy(e, 'melee');
       }
@@ -1017,10 +1017,8 @@ function weaponAttack(kind) {
     // sweeps the FRONT arc harder — you must face the threat
     for (const e of G.enemies) {
       if (e.telegraph > 0) continue;
+      if (!Combat.weaponHits('flail', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, w.reach, isSolidCell)) continue;
       const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-      if (d > w.reach + 1) continue;
-      if ((dx * p.dir.x + dy * p.dir.y) / d < 0) continue; // front only
-      if (losBlocked(p.x, p.y, e.x, e.y)) continue;
       e.hp -= w.dmg; e.flash = 0.15; e.kx = dx / d * 40; e.ky = dy / d * 40; burst(e.x, e.y, e.ci, 6, 16, 0.3); if (e.hp <= 0) killEnemy(e, 'melee');
     }
     G.wfx = { kind, a: baseA, t: 0.2, reach: w.reach };
@@ -1039,16 +1037,18 @@ function weaponAttack(kind) {
   }
 }
 
-// shared arc hit used by base slash + rapier (LOS-gated)
-function slashCore(reach, dmg, dot0) {
+// solid-cell test as a plain predicate for combat.js
+const isSolidCell = (x, y) => solidAt(x, y);
+
+// shared arc hit used by base slash + rapier (LOS-gated via combat.js)
+function slashCore(reach, dmg, dot0, kind) {
   const p = G.player;
   let hitAny = false;
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
-    if (d > reach) continue;
-    if ((dx * p.dir.x + dy * p.dir.y) / (d || 1) < dot0) continue;
-    if (losBlocked(p.x, p.y, e.x, e.y)) continue;
+    // reach + front cone + line-of-sight, all from the pure combat module
+    if (!Combat.weaponHits(kind || 'sword', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, reach, isSolidCell)) continue;
     if (ironBlocked(e, p.x, p.y)) { clink(e); hitAny = true; continue; }
     e.hp -= dmg; e.flash = 0.15; hitAny = true;
     if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
@@ -1070,9 +1070,7 @@ function hammerSmash(charge) {
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-    if (d > reach) continue;
-    if ((dx * p.dir.x + dy * p.dir.y) / d < 0) continue; // front arc
-    if (losBlocked(p.x, p.y, e.x, e.y)) continue; // walls stop the hammer too
+    if (!Combat.weaponHits('hammer', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, reach, isSolidCell)) continue; // reach+front+LOS
     e.hp -= dmg; e.flash = 0.2; e.state = 'recover'; e.st = 0.4; // stun
     e.kx = dx / d * 70; e.ky = dy / d * 70;
     burst(e.x, e.y, e.ci, 14, 24, 0.5); hit = true;
@@ -1182,10 +1180,8 @@ function slash() {
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
-    if (d > reach) continue;
-    const dot = (dx * p.dir.x + dy * p.dir.y) / (d || 1);
-    if (dot < 0.35) continue;
-    if (losBlocked(p.x, p.y, e.x, e.y)) continue; // no killing through pillars
+    // base sword: reach + front cone + line-of-sight, all from the tested combat module
+    if (!Combat.weaponHits('sword', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, reach, isSolidCell)) continue;
     if (ironBlocked(e, p.x, p.y)) { clink(e); hitAny = true; continue; } // IRONFRONT
     e.hp -= st.dmg; e.flash = 0.15; hitAny = true;
     if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
@@ -1374,9 +1370,11 @@ function updatePlay(dt) {
     for (const e of G.enemies) {
       if (e.telegraph > 0) continue;
       e.flailCd = Math.max(0, (e.flailCd || 0) - dt);
-      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
-      const inFront = (dx * p.dir.x + dy * p.dir.y) / d > -0.2;
-      if (e.flailCd <= 0 && inFront && !losBlocked(p.x, p.y, e.x, e.y) && Math.hypot(e.x - fx, e.y - fy) < e.r + 1.5) {
+      // front-arc + line-of-sight from the tested combat module (same predicate as the
+      // flourish), THEN the orbiting-head proximity that makes the flail positional
+      if (e.flailCd <= 0 && Combat.weaponHits('flail', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, fw.reach, isSolidCell)
+        && Math.hypot(e.x - fx, e.y - fy) < e.r + 1.5) {
+        const dx = e.x - p.x, dy = e.y - p.y;
         e.hp -= fw.dmg; e.flash = 0.15; e.flailCd = fw.cd;
         e.kx = dx * 2.5; e.ky = dy * 2.5;
         burst(e.x, e.y, e.ci, 5, 12, 0.25); tone(700, 400, 0.05, 'square', 0.05);

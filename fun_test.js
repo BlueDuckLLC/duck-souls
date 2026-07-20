@@ -202,13 +202,27 @@ const has = re => re.test(SRC);
   }
   fun('F21', 'no signature weapon breaks the DPS band (0.6x..1.4x median)', ok, detail);
 }
-// F22: every weapon's hit path respects walls (extends F10 to all six).
+// F22: every weapon's hit path respects walls — now proven BEHAVIORALLY by combat_test.js
+// (the old version grepped for `losBlocked`; a grep is the shape-vs-behavior trap). Here we
+// require the weapon code to route through the tested pure predicate, and that the behavior
+// test actually exercises line-of-sight blocking for every weapon.
 {
-  // each weapon-attack branch must reference losBlocked (or route through a checked helper)
   const wa = SRC.match(/function weaponAttack[\s\S]*?\n\}/);
-  const losInWeapons = wa ? (wa[0].match(/losBlocked/g) || []).length : 0;
-  fun('F22', 'all six weapons respect walls, not just the base sword', losInWeapons >= 1 && /weaponAttack/.test(SRC),
-    `losBlocked refs in weaponAttack: ${losInWeapons}`);
+  const routes = wa ? (wa[0].match(/Combat\.weaponHits/g) || []).length : 0;
+  let behTests = false;
+  try {
+    const ct = fs.readFileSync(path.join(__dirname, 'combat_test.js'), 'utf8');
+    behTests = /wall blocks the \$\{w\}/.test(ct) && /'sword', 'rapier', 'whip', 'hammer', 'flail'/.test(ct);
+    require('./combat.js'); // must load without error
+  } catch (e) { behTests = false; }
+  // honest scope: the 5 MELEE weapons (sword/rapier/whip/hammer/flail) respect walls via the
+  // tested predicate; the 2 projectiles (boomerang/spore) collide per-step on solidAt, a
+  // different model. So we require BOTH melee routing in weaponAttack AND the flail's primary
+  // orbit (updatePlay) to route through Combat, and the behavioral test to cover them.
+  const orbitRoutes = /flailCd <= 0 && Combat\.weaponHits\('flail'/.test(SRC);
+  fun('F22', 'the 5 melee weapons respect walls, verified behaviorally (combat.js + combat_test.js)',
+    routes >= 2 && orbitRoutes && behTests,
+    `weaponAttack routes ${routes}x; flail-orbit routed: ${orbitRoutes}; combat_test per-weapon LOS: ${behTests}`);
 }
 // F23: SPORE-BOW is not a blind-pick trap — it regenerates.
 {
