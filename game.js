@@ -381,8 +381,9 @@ function loadLedger() {
 }
 function saveLedger() { localStorage.setItem(LS_LEDGER, JSON.stringify(G.ledger)); }
 const G = {
-  // a brand-new soul opens on the vine cutscene, then the story crawl
-  state: localStorage.getItem(LS_SEEN) ? 'title' : 'cinema', t: 0,
+  // safe default; a fresh soul is booted INTO the cutscene via playCine() below (which
+  // builds G.stage — setting state:'cinema' directly here left it undefined => black screen)
+  state: 'title', t: 0,
   cineI: 0, cineT: 0, cineRet: 'intro-chain',
   favor: loadFavor(),
   ledger: loadLedger(),
@@ -2737,6 +2738,9 @@ function drawBigPortrait(id, cx, cy, ci, al, t) {
 }
 
 function drawCinema(dt) {
+  // self-heal: if we somehow entered 'cinema' without playCine() initializing the stage,
+  // initialize it now instead of crashing every frame (the fresh-machine black-screen guard).
+  if (!G.stage) { playCine(G.cineI || 0, G.cineRet || 'gallery'); return; }
   const sc = CUTSCENES[G.cineI];
   const st = G.stage;
   G.cineT += dt; G.beatT += dt;
@@ -3775,4 +3779,7 @@ function frame(now) {
   }
   A.render();
 }
+// boot: a brand-new soul opens on the vine cutscene, then the story crawl. playCine
+// initializes G.stage — without it drawCinema throws every frame (fresh-machine black screen).
+if (!localStorage.getItem(LS_SEEN)) playCine(0, 'intro-chain');
 requestAnimationFrame(frame);

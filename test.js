@@ -188,7 +188,12 @@ for (const stats of [base, perfect, awful]) {
   t(`fireworks hooked across the game (${fwCalls} call sites)`, fwCalls >= 25);
   t('jelly transformation wired (dblclick + double-tap C)', /tryJelly/.test(src) && /dblclick/.test(src) && /BOUNCE-SLAM|bounce-slam|jellyT/.test(src));
   t('key and chest share a room (v9 ritual)', /key and chest share ONE room/.test(src));
-  t('boss chest triggers the pool break', /startPoolBreak\(\)/.test(src) && /function drawPool/.test(src));
+  // regression: fresh-machine boot must NOT black-screen (playCine inits G.stage; the
+  // literal state:'cinema' path left it undefined -> drawCinema threw every frame)
+  t('boot inits the cutscene via playCine (fresh-machine guard)', /if \(!localStorage\.getItem\(LS_SEEN\)\) playCine\(0, 'intro-chain'\)/.test(src));
+  t('drawCinema self-heals a missing stage', /if \(!G\.stage\) \{ playCine\(/.test(src));
+  t('G literal does not boot directly into cinema', !/state: localStorage\.getItem\(LS_SEEN\) \? 'title' : 'cinema'/.test(src));
+    t('boss chest triggers the pool break', /startPoolBreak\(\)/.test(src) && /function drawPool/.test(src));
   t('cutscenes: 12 conversations with dialogue', (src.match(/title: ['"]/g) || []).length >= 12 && (src.match(/say: '/g) || []).length >= 40);
   const speakers = new Set((src.match(/say: '(\w+)'/g) || []).map(s => s.match(/'(\w+)'/)[1]));
   t('every cutscene speaker is cast', [...speakers].every(s => ['velox','pluma','umbra','aurum','mors','sixth','soul','square','door'].includes(s)));
