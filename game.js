@@ -785,6 +785,9 @@ function drawTitle() {
   plasma(G.t * 0.7, 0.5, [6, 3, 8, 2]);
   bigText(80, 14, 'DUCK', 2, 5, 0.95);
   bigText(80, 26, 'SOULS', 2, 7, 0.95);
+  // dim the plasma behind the menu block so text pops
+  S.globalAlpha = 0.72; S.fillStyle = '#000';
+  S.fillRect(22, 38, 116, 40);
   A.textC(40, 'a fast-paced roguelite judged by a pantheon', 0);
   A.textC(42, 'every frame renders through a live video->ASCII filter', 1, 0.7);
   // pantheon disposition
