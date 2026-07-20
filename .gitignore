@@ -1,3 +1,4 @@
 node_modules/
 params_candidate.json
 .vercel
+autotune-cron.log

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Unattended autotune loop. Install:
+       cp com.bdl.ducksouls-autotune.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.bdl.ducksouls-autotune.plist
+     Runs one epoch every 6 hours, parking improvements on the `autotune` branch.
+     Uninstall: launchctl unload ~/Library/LaunchAgents/com.bdl.ducksouls-autotune.plist -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.bdl.ducksouls-autotune</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/brighamhall/duck-souls/autotune-run.sh</string>
+  </array>
+  <key>StartInterval</key><integer>21600</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/Users/brighamhall/duck-souls/autotune-cron.log</string>
+  <key>StandardErrorPath</key><string>/Users/brighamhall/duck-souls/autotune-cron.log</string>
+  <key>WorkingDirectory</key><string>/Users/brighamhall/duck-souls</string>
+</dict>
+</plist>

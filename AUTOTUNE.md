@@ -63,3 +63,20 @@ into a local optimum.
   constraints in FUN.md.
 - funProxy measures the load-bearing preconditions of fun (pace, fairness, cadence, stakes),
   never delight itself.
+
+## Unattended (zero-token) continuous operation
+
+`autotune-run.sh` runs one epoch and parks any improvement on the **`autotune` branch**
+(never main, never auto-deploys — a human or `/autotune` promotes). Install the launchd job
+to run it every 6h:
+
+```
+cp com.bdl.ducksouls-autotune.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.bdl.ducksouls-autotune.plist   # start
+launchctl unload ~/Library/LaunchAgents/com.bdl.ducksouls-autotune.plist # stop
+```
+
+Two-speed design: the **fast cheap param loop** runs on this cron (no model tokens); the
+**slow smart feature loop** runs when you invoke `/autotune` (Fable/Claude adds the
+feature-discovery + /tdd-fun certification + deploy). `git log autotune` shows what the
+unattended loop found; `/autotune` reviews and promotes.
