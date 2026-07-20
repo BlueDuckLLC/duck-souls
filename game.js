@@ -2910,7 +2910,18 @@ function drawCinema(dt) {
   G.cineT += dt; G.beatT += dt;
   const b = sc.beats[G.cineBeat];
   // auto-advance non-dialogue beats
-  if (b && !b.say && G.beatT > beatAuto(b)) advanceBeat();
+  // AUTO-ADVANCE so every scene plays hands-free as a 15-30s cinematic (a keypress still
+  // fast-forwards via onKey). Non-say beats hold for their fx duration; say beats hold until
+  // the line finishes typing PLUS a reading dwell scaled to its length.
+  if (b) {
+    if (!b.say) { if (G.beatT > beatAuto(b)) advanceBeat(); }
+    else {
+      const cps = (CAST[b.say] && CAST[b.say].glitchy) ? 18 : 34; // chars/sec typewriter rate
+      const typeT = b.text.length / cps;
+      const dwell = 1.1 + b.text.length * 0.038;                  // time to READ after it lands
+      if (G.beatT > typeT + dwell) advanceBeat();
+    }
+  }
 
   // ---- background layers ----
   if (st.bg === 'vine') cineVineDraw(G.cineT, false);
@@ -3003,8 +3014,11 @@ function drawCinema(dt) {
   }
 
   A.textC(2, sc.title, 0, 0.7);
-  if (!b) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- any key -', 5); }
-  else if (!b.say) A.textC(88, 'ESC: leave', 1, 0.25);
+  // beat-progress pips (filled up to the current beat) so the cinematic shows its own length
+  let dots = ''; for (let i = 0; i < sc.beats.length; i++) dots += i <= G.cineBeat ? '#' : '.';
+  A.textC(4, dots, 5, 0.5);
+  if (!b) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- press to return -', 5); }
+  else A.textC(88, 'SPACE skip forward   ESC skip scene', 1, 0.3);
 }
 
 function drawGallery(dt) {
