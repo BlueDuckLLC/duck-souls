@@ -137,14 +137,12 @@ const has = re => re.test(SRC);
 
 // ---- F11: kiting is not strictly dominant ----
 {
-  // read the reach wherever it lives: a literal, or the named constant
-  const reach = /SLASH_REACH\s*=\s*([0-9.]+)/.test(SRC)
-    ? parseFloat(SRC.match(/SLASH_REACH\s*=\s*([0-9.]+)/)[1])
-    : num(/if \(d > ([0-9.]+)\) continue;/, 'slash reach');
-  // measure against the REAL duck threat: lunge travel + the lunge-state ellipse,
-  // not the unused circular radius (refuted 2026-07-20)
-  const lm = parseFloat((SRC.match(/LUNGE_MULT = ([0-9.]+)/) || [, 3.6])[1]);
-  const lt = parseFloat((SRC.match(/LUNGE_TIME = ([0-9.]+)/) || [, 0.28])[1]);
+  // reach/lunge now live in params.js (the tunable surface) — read the EFFECTIVE values so
+  // this hypothesis holds against whatever the autotuner sets, not a stale source literal.
+  const PP = require('./params.js');
+  const reach = PP.combat.slashReach;
+  const lm = PP.combat.lungeMult;
+  const lt = PP.combat.lungeTime;
   const ellipse = 4.2;
   const threatAt = d => (5.5 + 0.5 * d) * lm * lt + ellipse;
   const t1 = threatAt(1), t8 = threatAt(8);

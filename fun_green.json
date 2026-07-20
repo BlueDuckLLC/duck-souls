@@ -63,7 +63,7 @@
     "id": "F9",
     "claim": "enemies do not collapse to one-shots by depth 4",
     "pass": true,
-    "detail": "duck hp expr: 3 + Math.floor(G.depth / 2); sword cap present"
+    "detail": "duck hp expr: 3 + Math.floor(G.depth / PARAMS.enemy.hpDivDuck); sword cap present"
   },
   {
     "id": "F10",
