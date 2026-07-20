@@ -247,6 +247,66 @@ const has = re => re.test(SRC);
     `weapons with a distinct anim branch: ${anims.length}/6`);
 }
 
+// ---- round 4: the arcade roster (16 enemies shipped with no fun-hypothesis) ----
+// Read the real ENEMIES table + the depth speed-scaling + player base speed from source.
+{
+  const em = SRC.match(/const ENEMIES = (\{[\s\S]*?\n\});/);
+  const scaleM = SRC.match(/spd: d\.spd \* \(1 \+ ([0-9.]+) \* G\.depth\)/);
+  const playerBase = parseFloat((SRC.match(/spd: (\d+) \* p\.spdMult/) || [, 14])[1]);
+  let ENEM = null; try { ENEM = em ? new Function('return ' + em[1])() : null; } catch (e) { }
+  const scale = scaleM ? parseFloat(scaleM[1]) : 0.05;
+  const spdAt = (base, depth) => base * (1 + scale * depth);
+  const HOMING = ['chase', 'ghost', 'joust', 'spin', 'wall']; // archetypes that seek the player
+
+  // F26: every HOMING enemy stays slower than the player through depth 10 — you can always
+  // create space (the Robotron rule: you die cornered, not outsped).
+  {
+    let worst = null, worstR = 0;
+    if (ENEM) for (const [k, d] of Object.entries(ENEM)) {
+      if (!HOMING.includes(d.arch)) continue;
+      const r = spdAt(d.spd, 10) / playerBase;
+      if (r > worstR) { worstR = r; worst = k; }
+    }
+    fun('F26', 'homing enemies never outrun the player (you can always make space)', ENEM && worstR < 0.95,
+      `fastest homing at depth 10: ${worst} at ${(worstR).toFixed(2)}x player speed`);
+  }
+
+  // F27: an INVULNERABLE enemy (Otto — unkillable) must be strictly slower than the player
+  // at ALL depths, or it becomes guaranteed unavoidable damage.
+  {
+    const inv = ENEM ? Object.entries(ENEM).filter(([, d]) => d.invuln) : [];
+    let bad = null;
+    for (const [k, d] of inv) {
+      // otto's effective speed includes a homing nudge (+2 in the bounce archetype)
+      const eff = spdAt(d.spd, 10) + 2;
+      if (eff >= playerBase) bad = `${k} = ${eff.toFixed(1)} vs player ${playerBase} at depth 10`;
+    }
+    fun('F27', 'the invulnerable enemy can always be outrun (it herds, never guarantees a hit)',
+      inv.length > 0 && !bad, bad || (inv.length ? 'invulnerable enemies stay slower' : 'no invulnerable enemy found'));
+  }
+
+  // F28: every archetype with a RANGED or DASH lethal move sets a telegraph state before the
+  // damaging frame (dive windup, shoot/lob/march aim, burn windup).
+  {
+    const ai = (SRC.match(/function arcadeAI[\s\S]*?\n\}/) || [''])[0];
+    const shoot = (SRC.match(/function arcadeShoot[\s\S]*?\n\}/) || [''])[0];
+    const diveTele = /case 'dive'[\s\S]*?state === 'windup'/.test(ai);
+    const burnTele = /case 'burn'[\s\S]*?state === 'windup'/.test(ai);
+    const shootTele = /aimT = e\.cd <= TURRET_AIM/.test(shoot);
+    fun('F28', 'ranged/dash arcade attacks telegraph before they strike', diveTele && burnTele && shootTele,
+      `dive windup:${diveTele} burn windup:${burnTele} shoot aim:${shootTele}`);
+  }
+
+  // F29: the splitter cannot exponentially fill a room — generations are bounded.
+  {
+    const genCap = /gen \|\| 0\) < (\d+)/.exec(SRC);
+    const cap = genCap ? parseInt(genCap[1]) : 99;
+    // 1 -> 2 -> 4 then gen==cap dies normally: total spawned descendants bounded
+    fun('F29', 'the splitter cannot exponentially explode (bounded generations)', cap <= 2,
+      `splitter halves for ${cap} generations (max ~${Math.pow(2, cap + 1) - 1} bodies from one)`);
+  }
+}
+
 // ---- report ----
 const pass = results.filter(r => r.pass).length;
 console.log('\nDUCK SOULS — FUN HARNESS\n' + '='.repeat(56));
