@@ -60,7 +60,9 @@ function fitness(env, theta, seeds) {
     // descent dominates (floors*100 via score); kills*20 + room-clears*25 make combat worth the
     // risk; attackNear is the DENSE bootstrap that lets ES discover attacking before a kill lands;
     // tiny capped survival term discourages suicide without rewarding camping.
-    f += r.floors * 100 + r.kills * 20 + r.roomsCleared * 25 + r.attackNear * 0.4 + 0.008 * Math.min(r.steps, 350);
+    // hack-resistant: real kills/clears/floors dominate; the attackNear bootstrap is HARD-CAPPED
+    // (max ~2.4) so the agent can't win by spamming attack near enemies without committing.
+    f += r.floors * 100 + r.kills * 30 + r.roomsCleared * 40 + Math.min(r.attackNear, 15) * 0.16 + 0.006 * Math.min(r.steps, 300);
   }
   return f / seeds.length;
 }

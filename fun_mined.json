@@ -1,15 +1,15 @@
 {
   "generatedBy": "gemma2:9b",
   "ts_note": "stamp when depositing",
-  "behavior": "A reward-maximizing agent (trained by evolution strategies to descend + kill + survive) was run for 16 episodes on DUCK SOULS, a fast ASCII roguelite. Observed behavior: avg score 103, avg survival 964 steps, avg kills 0.5, deepest floor 1, died in 1/16 runs. Action mix: idle 0%, left 43%, right 0%, up 0%, down 32%, attack 11%, dash 0%, use 14%. The single most-used action is 'left' at 43%.",
-  "degenerate": false,
-  "judge": "This is a FUN problem. The agent's reliance on 'left' suggests an exploit, likely due to level geometry favoring that direction or enemies being predictable in their movement patterns.",
+  "behavior": "A reward-maximizing agent (trained by evolution strategies to descend + kill + survive) was run for 16 episodes on DUCK SOULS, a fast ASCII roguelite. Observed behavior: avg score 104, avg survival 954 steps, avg kills 0.6, deepest floor 1, died in 1/16 runs. Action mix: idle 0%, left 0%, right 78%, up 0%, down 0%, attack 22%, dash 0%, use 0%. The single most-used action is 'right' at 78%.",
+  "degenerate": true,
+  "judge": "This is a **FAIRNESS** problem. The agent exploits an easily exploitable mechanic, likely by finding a loop that allows it to repeatedly gain score without engaging in combat.",
   "hypothesis": {
-    "id": "F-leftward-bias",
-    "claim": "The game lacks compelling reasons to move in any direction other than left, as evidenced by the agent's overwhelming preference for leftward movement.",
-    "metric": "Percentage of actions that are not 'left'",
+    "id": "F-right-tunnel",
+    "claim": "The game lacks spatial variety to encourage movement beyond a single direction",
+    "metric": "Percentage of steps taken in directions other than right",
     "threshold": "<10%",
-    "method": "Analyze action logs from a trained reward-maximizing agent."
+    "method": "Analyze bot trace, count steps in each cardinal direction"
   },
   "next": "deposit via /autoresearch-grade (moot+adversary grade) before it can enter FUN.md"
 }
