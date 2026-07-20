@@ -1471,34 +1471,86 @@ function roomCleared() {
 const BOSSES = [
   {
     id: 'leviathan', name: 'THE FEATHER-LEVIATHAN', tagline: 'a serpent that remembers the sky', ci: 3,
+    mechanic: 'env', // arena flips each form; orbs only vulnerable in the calm between shifts
     forms: [{ orbs: 3, atk: ['storm', 'sweep'] }, { orbs: 4, atk: ['sweep', 'dive'] }, { orbs: 5, atk: ['storm', 'dive'] }],
     sprites: [
       ['   ~~~###~~~   ', ' ~##########~ ', '~#o###########~', ' ~###~~~~####~ ', '   ~~~    ~~~  '],
       ['    ~###~   ', '  ~#####~  ', ' ~#o####~ ', '~########~', ' ~######~ ', '  ~~##~~  ', '   ~##~   '],
-      ['  ~ # ~ # ~  ', ' # ~ # ~ # ', '~#o#~###~#~', ' # ~ # ~ # ', '  ~ # ~ #  '],
+      // F3 rewrite (pixel review): a plumed serpent shedding feathers, keeps head+eye (was noise)
+      ['~#o####~  ', ' ~#####~  ', ' ~####~ ~ ', '~####~  ~ ', ' ~##~ ~ ~ '],
     ],
   },
   {
     id: 'inquisitor', name: 'THE CLOCKWORK INQUISITOR', tagline: 'it winds. it judges. it strikes.', ci: 5,
+    mechanic: 'mirror', // a delayed clone of your inputs carries the orb; hit it when you desync
     forms: [{ orbs: 3, atk: ['spiral', 'pendulum'] }, { orbs: 4, atk: ['pendulum', 'cogs'] }, { orbs: 5, atk: ['spiral', 'cogs'] }],
     sprites: [
       ['  #######  ', ' ##(o)(o)## ', '###########', ' ##|||||## ', '  #######  '],
       [' ##  ###  ## ', '##(o)===(o)##', ' ####|#|#### ', '  ##/   \\##  '],
-      ['#   ###   #', ' # (o|o) # ', '  ##|||##  ', ' #  |||  # ', '#   ###   #'],
+      // F3 rewrite (pixel review): widen so the two eyes stay legible when crushed
+      ['#   ###   #', ' # (o)|(o) # ', '  ##|||##  ', ' #  |||  # ', '#   ###   #'],
     ],
   },
   {
     id: 'king', name: 'THE DROWNED KING', tagline: 'he never stopped being royalty. only breathing.', ci: 6,
+    mechanic: 'fast', // relentless enrage rush; punish-window only after you dodge a flurry
     forms: [{ orbs: 3, atk: ['tide', 'grasp'] }, { orbs: 4, atk: ['grasp', 'whirl'] }, { orbs: 5, atk: ['tide', 'whirl'] }],
     sprites: [
       ['  |||||  ', ' ####### ', '#o#####o#', '#########', ' ##   ## '],
-      ['   |||||   ', '  #######  ', ' #o#####o# ', '~#########~', '~~##   ##~~'],
+      // F2 rewrite (pixel review): visibly SINKING — crown tilts, eye row drops, tide climbs
+      [' \\||||/  ', '  ~###~  ', ' #o###o# ', '~#######~', '~~## #~~~'],
       ['~~~|||||~~~', '~#########~', '~#o~###~o#~', '~~#######~~', ' ~~~~#~~~~ '],
+    ],
+  },
+  {
+    id: 'abbot', name: 'THE BROOD-ABBOT', tagline: 'the cowl is full of children', ci: 2,
+    mechanic: 'summoner', // orbs invuln while any add lives; adds optional (greed line)
+    forms: [{ orbs: 3, atk: ['grasp'] }, { orbs: 4, atk: ['grasp', 'sweep'] }, { orbs: 5, atk: ['sweep'] }],
+    sprites: [ // peaked hood + bottom-heavy brood + bare `o o` eyes (separates from Inquisitor)
+      ['   /\\    ', ' ~/###\\~ ', ' #( o o )#', ' ##ooo## ', '#ooooooo#', ' \\ooooo/ '],
+      ['   /\\    ', ' \\###/   ', '#( o o )#', '#ooooooo#', '(oo#ooo#oo)', ' \\ooooo/ '],
+      ['  ~###~  ', ' #( x )# ', '  #ooo#  ', ' #ooooo# ', '  ~###~  '],
+    ],
+  },
+  {
+    id: 'prism', name: 'THE REFRACTOR', tagline: 'the arena is a lens - bend the light back into it', ci: 4,
+    mechanic: 'refractor', // fires beams; only a beam you dash-redirect into its orbs counts
+    forms: [{ orbs: 3, atk: ['sweep'] }, { orbs: 4, atk: ['spiral'] }, { orbs: 5, atk: ['spiral', 'sweep'] }],
+    sprites: [ // crystalline, mass-preserving (pixel review) so it never deflates to zigzag mush
+      ['   /\\   ', '  /##\\  ', ' /#oo#\\ ', ' \\#oo#/ ', '  \\##/  ', '   \\/   '],
+      ['  /\\  /\\  ', ' /#\\ /#\\ ', '/o#\\/o#\\', '\\#o/\\#o/', ' \\/  \\/ '],
+      [' /\\ /\\ /\\ ', '/#\\/o\\/#\\', '\\o/\\#/\\o/', ' \\/ \\/ \\/ '],
+    ],
+  },
+  {
+    id: 'maw', name: 'THE COLLAPSED MAW', tagline: 'a mouth that fell into itself', ci: 7,
+    mechanic: 'gravity', // constant pull toward it; orbs on the far arc; pull inverts, telegraphed
+    forms: [{ orbs: 3, atk: ['whirl'] }, { orbs: 4, atk: ['whirl', 'tide'] }, { orbs: 5, atk: ['tide'] }],
+    sprites: [
+      [' (((@))) ', '((#####))', '(#(ooo)#)', '((#####))', ' (((@))) '],
+      ['\\((@))/', '(#ooo#)', '((@#@))', '(#ooo#)', '/((@))\\'],
+      // F3 rewrite (pixel review): DENSER on implosion (@ mass, inward arms) — was an airy sparkle
+      ['  |||  ', '\\(@@@)/', '-@ooo@-', '/(@@@)\\', '  |||  '],
+    ],
+  },
+  {
+    id: 'duo', name: 'THE GEMINI WARDENS', tagline: 'two that count; kill the tally, not the tallier', ci: 3,
+    mechanic: 'duo', // two bodies, each its own orb set; a form breaks only when BOTH stagger
+    forms: [{ orbs: 2, atk: ['sweep'] }, { orbs: 3, atk: ['spiral'] }, { orbs: 3, atk: ['sweep', 'spiral'] }],
+    twinSprites: [ // left = angular warden, right = round warden (track which is which)
+      ['  /\\  ', ' /o8\\ ', ' \\#8/ ', '  \\/  '],
+      [' ,--. ', '( o8 )', '( #8 )', ' `--\' '],
+    ],
+    sprites: [ // fallback single sprite (renderer prefers twinSprites for the duo)
+      [' /\\  ,--. ', '/o8\\( o8 )', '\\#8/( #8 )', ' \\/  `--\' '],
+      [' /\\  ,--. ', '/o8\\( o8 )', '\\#8/( #8 )', ' \\/  `--\' '],
+      [' /\\  ,--. ', '/o8\\( o8 )', '\\#8/( #8 )', ' \\/  `--\' '],
     ],
   },
 ];
 
-function bossForDepth() { return BOSSES[(G.rng() * BOSSES.length) | 0]; } // v10: random boss, every floor
+// v10: random boss every floor. Duo is excluded until its two-body logic is wired (below).
+function bossForDepth() { const pool = BOSSES.filter(x => x.mechanic !== 'duo'); return pool[(G.rng() * pool.length) | 0]; }
 function bossRoomKey() { for (const [k, r] of G.rooms) if (r.type === 'stairs') return k; return '0,0'; }
 
 // THE POOL BREAK: the current frame's lit cells become billiard balls — scattered,
@@ -1600,23 +1652,31 @@ function updateBoss(dt) {
   b.vx = Math.sin(b.t * 0.7) * 6; b.vy = Math.cos(b.t * 0.5) * 3;
   b.x += b.vx * dt; b.y += b.vy * dt;
   b.x = Math.max(X0 + 12, Math.min(X1 - 12, b.x)); b.y = Math.max(Y0 + 8, Math.min(Y1 - 20, b.y));
-  // attacks: alternate the form's two attacks, telegraphed
+  // per-mechanic side-effects: env arena calm/active, mirror echo+clone, summoned adds,
+  // gravity pull on the player, refractor beams. This is WHERE the bosses stop being reskins.
+  bossMechTick(b, dt);
+  // attacks: alternate the form's two attacks, telegraphed. FAST/enrage tightens only the GAP
+  // between attacks each form — never the windup (Boss.telegraph floors it at 250ms in bossAttack).
   b.atkT -= dt;
   if (b.atkT <= 0) {
     const atks = def.forms[b.st.form].atk;
     bossAttack(atks[b.atkI % atks.length], b);
     b.atkI++;
-    b.atkT = Math.max(1.4, 2.6 - G.depth * 0.08);
+    const enrage = def.mechanic === 'fast' ? (1 - 0.22 * b.st.form) : 1;
+    b.atkT = Math.max(0.7, (2.6 - G.depth * 0.08) * enrage);
   }
-  // orb hit-testing: slash arc, player bullets, stars, booms
+  // orb hit-testing: slash arc, player bullets, stars, booms, redirected beams. The mechanic
+  // GATE (bossOrbOpen) decides whether a landed hit counts — that gate is the real difference.
   const orbs = Boss.orbPositions(b.st.orbs, b.x, b.y, b.t);
+  b.orbsOpen = bossOrbOpen(b, 'slash'); // cached for the renderer (open=blue vs caged=grey)
   for (const o of orbs) {
-    let hit = false;
-    if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hit = true;
-    for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hit = true; pb.dead = true; }
-    for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hit = true;
-    for (const bm of G.booms) if (!bm.enemyBomb && Math.hypot(bm.x - o.x, bm.y - o.y) < 2.5) hit = true;
-    if (hit) {
+    let hitKind = null;
+    if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hitKind = 'slash';
+    for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hitKind = hitKind || 'bolt'; pb.dead = true; }
+    for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hitKind = hitKind || 'star';
+    for (const bm of G.booms) if (!bm.enemyBomb && Math.hypot(bm.x - o.x, bm.y - o.y) < 2.5) hitKind = hitKind || 'boom';
+    for (const be of (b.beams || [])) if (be.reflected && Math.hypot(be.x - o.x, be.y - o.y) < 2.6) { hitKind = 'beam'; be.spent = true; }
+    if (hitKind && bossOrbOpen(b, hitKind)) {
       b.st = Boss.hitOrb(b.st, def);
       b.hitFlash = 0.15;
       p.atkT = 0; // one swing breaks one orb — no multi-orb chains from a single slash
@@ -1640,7 +1700,8 @@ function updateBoss(dt) {
 function bossAttack(kind, b) {
   const p = G.player;
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
-  b.telegraphA = { kind, t: 0.45 }; // drawn as a flash before the volley lands
+  // windup floored at 250ms (Boss.telegraph); FAST/enrage may nudge it, never below the floor
+  b.telegraphA = { kind, t: Boss.telegraph(0.45, b.st.form, b.def.mechanic === 'fast') };
   setTimeout(() => { }, 0); // (attacks fire below after the telegraph via aimed spawns)
   if (kind === 'storm' || kind === 'spiral') {
     const n = kind === 'spiral' ? 10 : 8;
@@ -1663,6 +1724,106 @@ function bossAttack(kind, b) {
     for (let i = 0; i < 9; i++) G.bolts.push({ x: X0 + 4 + i * ((X1 - X0 - 8) / 8), y: Y1 - 2, vx: 0, vy: -11, life: 5 });
   }
   tone(140, 60, 0.3, 'sawtooth', 0.1);
+}
+
+// ---- per-boss mechanic RUNTIME (boss.js owns the pure gates; this is the wiring) ----
+function bossAddsAlive() { return G.enemies ? G.enemies.filter(e => !e.dead).length : 0; }
+
+// a reachable, non-solid arena cell for a summoned add (anti-softlock: never spawn in a wall)
+function reachableSpawn(b) {
+  for (let i = 0; i < 24; i++) {
+    const x = X0 + 4 + Math.random() * (X1 - X0 - 8), y = Y0 + 6 + Math.random() * (Y1 - Y0 - 12);
+    if (!solidAt(x, y)) return { x, y };
+  }
+  return { x: (X0 + X1) / 2, y: (Y0 + Y1) / 2 };
+}
+
+// THE GATE: is this boss's orb breakable by this hit source right now? The one real difference.
+function bossOrbOpen(b, hitKind) {
+  const m = b.def.mechanic;
+  if (m === 'refractor') return hitKind === 'beam';   // only a redirected beam breaks it
+  if (hitKind === 'beam') return false;               // beams count only for the refractor
+  if (m === 'env') return Boss.envVulnerable(b.t, b.st.form);
+  if (m === 'mirror') return b.desynced === true;
+  if (m === 'summoner') return Boss.addsGate(bossAddsAlive());
+  return true; // fast / gravity / duo: challenge is speed/space, orbs always breakable
+}
+
+// per-frame mechanic side-effects — WHERE the bosses stop being reskins
+function bossMechTick(b, dt) {
+  const def = b.def, p = G.player, m = def.mechanic;
+  const spd = 14 * (p.spdMult || 1);
+  if (m === 'env') { // arena flips each form; a light force during the ACTIVE window, calm = strike
+    const ph = Boss.envPhase(b.t, b.st.form); b.calm = ph.calm;
+    if (!ph.calm && p.dashT <= 0) {
+      if (b.st.form === 0) p.x += Math.sin(b.t * 0.9) * 8 * dt;   // wind push
+      else if (b.st.form === 1) p.y += 6 * dt;                    // heavy gravity
+      // form 2 = pitch dark (draw side); the orb self-illuminates so it's never hidden
+    }
+    return;
+  }
+  if (m === 'mirror') { // echo your input; a delayed clone replays it; desync exposes the orb
+    const iv = { vx: (keys['arrowright'] || keys['d'] ? 1 : 0) - (keys['arrowleft'] || keys['a'] ? 1 : 0),
+                 vy: (keys['arrowdown'] || keys['s'] ? 1 : 0) - (keys['arrowup'] || keys['w'] ? 1 : 0), t: b.t };
+    b.echo = b.echo || []; b.echo.push(iv); if (b.echo.length > 300) b.echo.shift();
+    const delay = Boss.mirrorDelay(b.st.form);
+    const past = b.echo.find(e => e.t >= b.t - delay) || b.echo[0];
+    b.echoVec = past; b.cloneX = (X0 + X1) - b.x; b.cloneY = b.y;
+    b.desynced = Boss.mirrorDesynced(iv.vx, iv.vy, past.vx, past.vy);
+    return;
+  }
+  if (m === 'summoner') { // spawn up to 3 REACHABLE adds when low + off cooldown
+    b.sinceSummon = (b.sinceSummon || 99) + dt; b.summonCd = (b.summonCd || 0) - dt;
+    if (b.summonCd <= 0 && Boss.canSummon(bossAddsAlive(), b.sinceSummon, 3)) {
+      const rng2 = mulberry32((b.t * 997) | 0);
+      const k = ['grunt', 'hopper', 'diver'][(b.t * 3 | 0) % 3];
+      spawnOne(k, rng2, () => reachableSpawn(b), G.cur);
+      b.sinceSummon = 0; b.summonCd = 2.0;
+    }
+    return;
+  }
+  if (m === 'refractor') { // fire beams on cadence; a dash near one reflects it back into the orbs
+    b.beams = (b.beams || []).filter(be => !be.spent && be.life > 0);
+    b.beamCd = (b.beamCd || 0) - dt;
+    if (b.beamCd <= 0) {
+      const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
+      b.beams.push({ x: b.x, y: b.y, vx: dx / d * 20, vy: dy / d * 20, life: 3, reflected: false });
+      b.beamCd = Boss.beamCadence(b.st.form);
+    }
+    for (const be of b.beams) {
+      be.x += be.vx * dt; be.y += be.vy * dt; be.life -= dt;
+      if (!be.reflected && p.dashT > 0 && Math.hypot(be.x - p.x, be.y - p.y) < 4.5) {
+        const dx = b.x - be.x, dy = b.y - be.y, d = Math.hypot(dx, dy) || 1; // send it home
+        be.vx = dx / d * 26; be.vy = dy / d * 26; be.reflected = true; be.life = 3; SFX.dash();
+      }
+      if (!be.reflected && p.invulnT <= 0 && p.dashT <= 0 && Math.hypot(be.x - p.x, be.y - p.y) < 2.5) { hurtPlayer(b); be.spent = true; }
+    }
+    return;
+  }
+  if (m === 'gravity') { // constant pull (<=50% move speed); dash overpowers it (escape valve)
+    const pv = Boss.pullVector(p.x, p.y, b.x, b.y, spd, b.st.form, b.t);
+    if (p.dashT <= 0) { p.x += pv.vx * dt; p.y += pv.vy * dt; }
+    b.inverting = Boss.pullInverting(b.t);
+    return;
+  }
+}
+
+// per-mechanic overlays: the clone, the beams, the calm border, the inversion warning, add-arrows
+function bossMechDraw(b) {
+  const def = b.def, p = G.player, m = def.mechanic, spr = def.sprites[b.st.form];
+  if (m === 'env') {
+    if (b.calm) { for (let x = X0; x <= X1; x += 2) { px(x, Y0, 3, 0.6); px(x, Y1, 3, 0.6); } A.text(b.x - 5, b.y - spr.length / 2 - 3, 'STRIKE NOW', 3, 0.75); }
+    else if (b.st.form === 2) for (let i = 0; i < 220; i++) px(X0 + Math.random() * (X1 - X0), Y0 + Math.random() * (Y1 - Y0), 1, 0.07); // dark veil (orb still glows)
+    return;
+  }
+  if (m === 'mirror') { // the delayed clone carries the live orb; bright + labelled when desynced
+    blit(spr, b.cloneX - spr[0].length / 2, b.cloneY - spr.length / 2, def.ci, b.desynced ? 1.3 : 0.5, true);
+    if (b.desynced) A.text(b.cloneX - 3, b.cloneY - spr.length / 2 - 2, 'DESYNC', 3, 0.9);
+    return;
+  }
+  if (m === 'refractor') { for (const be of (b.beams || [])) { const c = be.reflected ? 3 : 4; px(be.x, be.y, c, 1); px(be.x - be.vx * 0.03, be.y - be.vy * 0.03, c, 0.5); } return; }
+  if (m === 'gravity' && b.inverting) { for (let a = 0; a < 14; a++) { const an = a / 14 * Math.PI * 2; px(b.x + Math.cos(an) * 18, b.y + Math.sin(an) * 12, 5, 0.5 + 0.5 * Math.sin(G.t * 20)); } return; }
+  if (m === 'summoner') { for (const e of (G.enemies || [])) { if (e.dead) continue; if (e.x < X0 || e.x > X1 || e.y < Y0 || e.y > Y1) A.text(Math.max(X0 + 1, Math.min(X1 - 1, e.x)), Math.max(Y0 + 1, Math.min(Y1 - 1, e.y)), '!', 5, 0.9); } return; }
 }
 
 function bossDefeated() {
@@ -3308,13 +3469,17 @@ function drawWorld() {
     const bBright = stag ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)) : (b.hitFlash > 0 ? 1.5 : 0.95);
     blit(spr, b.x - spr[0].length / 2, b.y - spr.length / 2, def.ci, bBright, false);
     if (b.telegraphA && b.telegraphA.t > 0) { b.telegraphA.t -= 1 / 60; rect(b.x - 2, b.y - 2, 4, 4, 5, 0.5 + 0.5 * Math.sin(G.t * 30)); }
-    // orb weakpoints ride the same fake-3D ring grammar as your health
+    // orb weakpoints ride the fake-3D ring grammar. OPEN = blue + pulsing (a hit counts),
+    // CAGED = grey + dim (the mechanic gate is shut). The player must always SEE which.
     const orbs = Boss.orbPositions(b.st.orbs, b.x, b.y, b.t);
+    const open = b.orbsOpen !== false;
     for (const o of orbs) {
       const sz = 0.8 + (o.depth + 1) * 0.5;
-      rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, 6, 0.6 + (o.depth + 1) * 0.2);
-      px(o.x, o.y - sz * 0.7, 0, 0.7);
+      rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, open ? 6 : 7, open ? 0.6 + (o.depth + 1) * 0.2 : 0.3);
+      px(o.x, o.y - sz * 0.7, open ? 0 : 1, open ? 0.8 : 0.35);
+      if (open) px(o.x, o.y - sz * 0.7, 0, 0.4 + 0.4 * Math.sin(G.t * 8)); // live pulse
     }
+    bossMechDraw(b);
     // form pips
     for (let f = 0; f < def.forms.length; f++) A.text(b.x - 3 + f * 3, b.y - spr.length / 2 - 3, f < b.st.form ? 'x' : f === b.st.form ? 'O' : 'o', f === b.st.form ? 5 : 1, 0.9);
   }
