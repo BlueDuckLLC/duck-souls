@@ -72,3 +72,24 @@ i-frames are only dashT > 0.)
    THIEF trip = free kill wave. Fix: mote +5 → +2, AURUM tuft weight 0.03 → 0.01 (cap
    0.2), alarm kills score 0 and levy −50. Invariant: aurum(tuftsCut:98) < A-grade;
    alarm-trip net score ≤ 0.
+
+## Seat 4 — The Bored Player (adversarial refutation, post-fix)
+
+Ran against the 15/15 green build and broke five of it:
+
+1. **[H] F11's metric graded a path that no longer executes.** It measured the circular
+   `e.r+1.4` (non-ducks only); real duck threat is lunge travel + the lunge ellipse =
+   10.25 cells vs the new 6.0 reach. "Kiting dominant" became "melee is a coin-flip you
+   lose" and the metric printed +1.4 either way. → reach 7.0, lunge 3.6×0.28 → 3.0×0.22.
+2. **[H] F8 passed on a grep, and the gate leaked a heart.** `newRun()` called
+   `boon('umbra')` before reassigning `G.run`, so a new run inherited the old run's depth
+   and started at 4 HP, silently losing it on descent. → reorder + execute the real gate
+   in the test.
+3. **[H] F12a/b were vacuous** — both sample points clamped at 1.00, so the caps sat above
+   saturation and farming still bought a full F→S swing. → weights cut (0.12→0.04,
+   0.08→0.03) so the cap binds; test now measures swing from a bare floor.
+4. **[M] F12c inverted the honesty law** — the card displayed the *capped* stat, lying
+   about the run to match the grade. → show both: "99 cut (5 counted)".
+5. **[M] Enemy fountain regen uncapped** while the player's capped at 2/room. → both capped.
+6. **[M] F5 swapped a behavioral threshold for a constant grep.** → static half kept as a
+   proxy, labelled; behavioral 2.8s/3-presses measured in-browser and recorded in FUN.md.

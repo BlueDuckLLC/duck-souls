@@ -51,6 +51,32 @@ const mut = key => G.cur && G.cur.mut === key;
 const liveScore = () => G.run ? G.run.floors * 100 + G.run.kills * 10 + (G.run.bonus || 0) : 0;
 // angle helpers for iron faces that track you with a lag (so flanking works)
 const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+// ---- fairness primitives (playtest panel 2026-07-20; measured by fun_test.js) ----
+const TURRET_AIM = 0.3;   // real-time seconds of aim telegraph, never scaled by room speed
+const MAX_SWORDS = 3;     // damage can't outrun enemy HP forever
+// Reach vs lunge is the core tension: the duck must out-threaten your sword (so you have
+// to dodge, not just backpedal), but not so far that melee is a coin-flip you lose.
+// Threat = LUNGE_TRAVEL + ellipse 4.2 must exceed SLASH_REACH by ~1-2 cells, not 4+.
+const SLASH_REACH = 7.0;   // 8.5 made kiting free; 6.0 made melee suicidal
+const LUNGE_MULT = 3.0, LUNGE_TIME = 0.22; // travel ~4.0 cells at depth 1 (was ~6.1)
+// contact damage is state-aware: the lunge is what kills you, a shoulder-brush grazes
+function contactHit(e, px2, py2) {
+  const dx = px2 - e.x, dy = py2 - e.y;
+  const full = e.type !== 'duck' || e.state === 'lunge';
+  if (e.type === 'duck') { // ellipse matching the 8x6 sprite, shrunk outside the lunge
+    const sx = full ? 4.2 : 2.4, sy = full ? 3.2 : 1.9;
+    return (dx * dx) / (sx * sx) + (dy * dy) / (sy * sy) < 1;
+  }
+  return Math.hypot(dx, dy) < e.r + 1.4;
+}
+// walls are walls: your sword respects what the enemies' bolts already respect
+function losBlocked(x0, y0, x1, y1) {
+  for (let i = 1; i <= 3; i++) {
+    const t = i / 4;
+    if (solidAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)) return true;
+  }
+  return false;
+}
 function ironBlocked(e, ax, ay) {
   if (!mut('IRONFRONT') || e.faceA === undefined) return false;
   const d = Math.hypot(ax - e.x, ay - e.y) || 1;
@@ -345,14 +371,29 @@ function drawHowto(dt) {
 }
 window.__fps = 0;
 
-const boon = id => P.boonActive(G.favor, id);
+// Boons must be EARNED THIS RUN: standing alone is not enough, or floor-1 suicide laps
+// buy permanent god-mode (exploit-hunter seat, 2026-07-20). Curses need no such gate —
+// punishment should never be dodgeable by dying early.
+const BOON_DEPTH_GATE = 3;
+const boon = id => P.boonActive(G.favor, id) && (G.run ? G.run.floors >= BOON_DEPTH_GATE : false);
 const curse = id => P.curseActive(G.favor, id);
+// favor drifts back toward the middle between runs: the gods forget a little
+function decayFavor(favor) {
+  const out = {};
+  for (const g of P.GODS) out[g.id] = Math.round(favor[g.id] + (P.START_FAVOR - favor[g.id]) * 0.3);
+  return out;
+}
 function msg(text, ci = 5, t = 2) { G.msgs.push({ text, ci, t, t0: t }); }
 
 function newRun() {
+  G.favor = decayFavor(G.favor);
+  localStorage.setItem(LS_FAVOR, JSON.stringify(G.favor));
   G.seed = (Math.random() * 0xffffff) | 0;
   G.rng = mulberry32(G.seed);
   G.depth = 1;
+  // reset the run BEFORE reading boons: boon() consults G.run.floors, so the old run's
+  // depth used to leak a phantom max-HP into the new one (refutation seat, 2026-07-20)
+  G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0, bonus: 0, hotdogs: 0, chests: 0, chalices: 0, stolen: 0, tufts: 0, spent: 0, pieces: 0 };
   const maxhp = 3 + (boon('umbra') ? FX.BOON_UMBRA : 0);
   G.player = {
     x: 80, y: 47, hp: maxhp, maxhp,
@@ -363,7 +404,6 @@ function newRun() {
   };
   G.pbolts = []; G.stars = []; G.bat = null;
   G.morsUsed = false;
-  G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0, bonus: 0, hotdogs: 0, chests: 0, chalices: 0, stolen: 0, tufts: 0, spent: 0, pieces: 0 };
   G.state = 'play';
   genFloor();
 }
@@ -421,9 +461,12 @@ function genFloor() {
   let far = start, fd = -1;
   for (const [k, d] of dist) if (d > fd) { fd = d; far = rooms.get(k); }
   far.type = 'stairs';
-  const others = [...rooms.values()].filter(r => r.type === 'fight');
-  if (others.length) {
-    const t = others[(rng() * others.length) | 0];
+  // the treasure room must not sit next to the start, or the run opens combat-free
+  const others = [...rooms.values()].filter(r => r.type === 'fight' && (dist.get(r.gx + ',' + r.gy) || 0) >= 2);
+  const anyFight = [...rooms.values()].filter(r => r.type === 'fight');
+  const pool = others.length ? others : anyFight;
+  if (pool.length > 1 || (pool.length === 1 && anyFight.length > 1)) {
+    const t = pool[(rng() * pool.length) | 0];
     t.type = 'treasure'; t.cleared = true; t.spawned = true;
   }
   // room heuristics + persistent per-room item lists
@@ -432,6 +475,14 @@ function genFloor() {
     r.items = [];
     r.mut = (r.type === 'fight' || r.type === 'stairs') && rng() < 0.55
       ? mutKeys[(rng() * mutKeys.length) | 0] : null;
+  }
+  // guarantee a hot fight room adjacent to the start: the game opens in combat
+  const startAdj = [...rooms.values()].filter(r => (dist.get(r.gx + ',' + r.gy) || 99) === 1);
+  const hotAdjacent = startAdj.find(r => r.type === 'fight' && r.mut !== 'TOLL');
+  if (!hotAdjacent && startAdj.length) {
+    const pick = startAdj[0];
+    pick.type = 'fight'; pick.cleared = false; pick.spawned = false;
+    if (pick.mut === 'TOLL') pick.mut = null;
   }
   // challenge objects: key + chest pair from depth 2 (cross-room carrying), one tool, rare chalice
   const spot = r => [X0 + 10 + rng() * (X1 - X0 - 20), Y0 + 8 + rng() * (Y1 - Y0 - 16)];
@@ -616,9 +667,9 @@ function spawnEnemies(room, rng, fromDir) {
   const mk = (type) => {
     const pos = place();
     const base = { type, x: pos.x, y: pos.y, vx: 0, vy: 0, telegraph: 0.7 + rng() * 0.4, flash: 0, kx: 0, ky: 0, state: 'seek', st: 0 };
-    if (type === 'duck') Object.assign(base, { hp: 3, r: 3.2, spd: 5.5 + 0.5 * G.depth, ci: 2 });
-    if (type === 'bat') Object.assign(base, { hp: 1, r: 1.8, spd: 9 + 0.4 * G.depth, ci: 8, ph: rng() * 6 });
-    if (type === 'turret') Object.assign(base, { hp: 4, r: 2.6, spd: 0, ci: 4, cd: 1 + rng() });
+    if (type === 'duck') Object.assign(base, { hp: 3 + Math.floor(G.depth / 2), r: 3.2, spd: 5.5 + 0.5 * G.depth, ci: 2 });
+    if (type === 'bat') Object.assign(base, { hp: 1 + Math.floor(G.depth / 4), r: 1.8, spd: 9 + 0.4 * G.depth, ci: 8, ph: rng() * 6 });
+    if (type === 'turret') Object.assign(base, { hp: 4 + Math.floor(G.depth / 3), r: 2.6, spd: 0, ci: 4, cd: 1 + rng(), aimT: 0 });
     if (room.mut === 'SWARM') base.hp = Math.max(1, Math.ceil(base.hp / 2));
     base.hp0 = base.hp;
     G.enemies.push(base);
@@ -676,6 +727,11 @@ function heldKind() { return G.player.held ? G.player.held.kind : null; }
 function useItem() {
   const p = G.player;
   if (G.state !== 'play') return;
+  // C at the merchant is a purchase, not an item use
+  if (G.cur.goods && G.cur.goods.some(gd => !gd.dead && Math.hypot(gd.x - p.x, gd.y - p.y) <= 3)) {
+    G.buyPressed = true;
+    return;
+  }
   if (!p.held) { msg('EMPTY HANDS', 1, 0.8); return; }
   const k = p.held.kind;
   if (k === 'gun') {
@@ -770,12 +826,12 @@ function slash() {
   // cuttable grass: the slash is never wasted
   if (G.cur.tufts) for (const tf of G.cur.tufts) {
     const dx = tf.x - p.x, dy = tf.y - p.y, d = Math.hypot(dx, dy);
-    if (d > 8.5 || (dx * p.dir.x + dy * p.dir.y) / (d || 1) < 0.35) continue;
+    if (d > SLASH_REACH || (dx * p.dir.x + dy * p.dir.y) / (d || 1) < 0.35) continue;
     tf.dead = true;
     G.floorStats.tuftsCut++;
     burst(tf.x, tf.y, 4, 5, 10, 0.35);
     const roll = Math.random();
-    if (roll < 0.22) { G.run.bonus = (G.run.bonus || 0) + 5; G.parts.push({ x: tf.x, y: tf.y, vx: 0, vy: -6, ci: 5, life: 0.6, t: 0 }); }
+    if (roll < 0.22) { G.run.bonus = (G.run.bonus || 0) + 2; G.parts.push({ x: tf.x, y: tf.y, vx: 0, vy: -6, ci: 5, life: 0.6, t: 0 }); }
     else if (roll < 0.3 && !G.floorStats.grassHeart) { G.floorStats.grassHeart = true; G.pickups.push({ x: tf.x, y: tf.y, kind: 'heart', ph: 0 }); }
   }
   if (G.cur.tufts) G.cur.tufts = G.cur.tufts.filter(tf => !tf.dead);
@@ -783,7 +839,7 @@ function slash() {
   if (G.hungry) {
     const h = G.hungry;
     const dx = h.x - p.x, dy = h.y - p.y, d = Math.hypot(dx, dy);
-    if (d < 8.5 && (dx * p.dir.x + dy * p.dir.y) / (d || 1) > 0.35) {
+    if (d < SLASH_REACH && (dx * p.dir.x + dy * p.dir.y) / (d || 1) > 0.35) {
       h.hp -= st.dmg; hitAny = true;
       burst(h.x, h.y, 8, 8, 14, 0.4);
       if (h.hp <= 0) {
@@ -797,9 +853,10 @@ function slash() {
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
-    if (d > 8.5) continue;
+    if (d > SLASH_REACH) continue;
     const dot = (dx * p.dir.x + dy * p.dir.y) / (d || 1);
     if (dot < 0.35) continue;
+    if (losBlocked(p.x, p.y, e.x, e.y)) continue; // no killing through pillars
     if (ironBlocked(e, p.x, p.y)) { clink(e); hitAny = true; continue; } // IRONFRONT
     e.hp -= st.dmg; e.flash = 0.15; hitAny = true;
     if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
@@ -811,7 +868,7 @@ function slash() {
   const b = G.bat;
   if (b) {
     const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy);
-    if (d < 8.5 && (dx * p.dir.x + dy * p.dir.y) / (d || 1) > 0.35) {
+    if (d < SLASH_REACH && (dx * p.dir.x + dy * p.dir.y) / (d || 1) > 0.35) {
       if (b.carrying) { G.pickups.push({ x: b.x, y: b.y, kind: b.carrying.kind, ammo: b.carrying.ammo, slot: true, ph: 0, cd: 0.6 }); msg('IT DROPPED YOUR ' + ITEMS[b.carrying.kind].label, 5, 1.6); }
       burst(b.x, b.y, 5, 18, 20, 0.6);
       G.floorStats.kills++; G.run.kills++;
@@ -848,6 +905,7 @@ function killEnemy(e, how = 'melee') {
   burst(e.x, e.y, e.ci, 16, 22, 0.7);
   burst(e.x, e.y, 0, 6, 14, 0.5);
   G.shake = Math.max(G.shake, 2.5);
+  G.hitstop = Math.max(G.hitstop, 0.11); // reward must out-freeze punishment (hurt = 0.09)
   SFX.kill();
 }
 
@@ -993,9 +1051,9 @@ function updatePlay(dt) {
         if (d < 14 && e.st <= 0) { e.state = 'windup'; e.st = 0.35; e.vx = e.vy = 0; }
       } else if (e.state === 'windup') {
         e.vx = e.vy = 0;
-        if (e.st <= 0) { e.state = 'lunge'; e.st = 0.28; e.lx = dx / d; e.ly = dy / d; }
+        if (e.st <= 0) { e.state = 'lunge'; e.st = LUNGE_TIME; e.lx = dx / d; e.ly = dy / d; }
       } else if (e.state === 'lunge') {
-        e.vx = e.lx * e.spd * 3.6; e.vy = e.ly * e.spd * 3.6;
+        e.vx = e.lx * e.spd * LUNGE_MULT; e.vy = e.ly * e.spd * LUNGE_MULT;
         if (e.st <= 0) { e.state = 'recover'; e.st = 0.4; }
       } else { // recover
         e.vx = e.vy = 0;
@@ -1008,8 +1066,10 @@ function updatePlay(dt) {
     } else if (e.type === 'turret') {
       e.vx = e.vy = 0;
       e.cd -= dt;
+      // aim phase runs in REAL time so HASTE can't shrink your reaction window
+      e.aimT = e.cd <= TURRET_AIM ? Math.max(0, e.cd) : 0;
       if (e.cd <= 0) {
-        e.cd = Math.max(0.9, 1.7 - 0.08 * G.depth);
+        e.cd = Math.max(0.9, 1.7 - 0.08 * G.depth) + TURRET_AIM;
         const n = G.depth >= 4 ? 3 : 1;
         for (let i = 0; i < n; i++) {
           const spread = (i - (n - 1) / 2) * 0.25;
@@ -1023,7 +1083,7 @@ function updatePlay(dt) {
     const wfx = G.windDir ? G.windDir[0] * 6 : 0, wfy = G.windDir ? G.windDir[1] * 6 : 0;
     tryMove(e, e.x + (e.vx * st.ts + e.kx + wfx) * dt, e.y + (e.vy * st.ts + e.ky + wfy) * dt, e.type === 'bat' ? 0.8 : 1.6);
     wrapWoods(e);
-    if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + 1.4) hurtPlayer(e);
+    if (contactHit(e, p.x, p.y)) hurtPlayer(e);
   }
   // enemy separation
   for (let i = 0; i < G.enemies.length; i++) for (let j = i + 1; j < G.enemies.length; j++) {
@@ -1168,11 +1228,19 @@ function updatePlay(dt) {
       p.healAcc = (p.healAcc || 0) + 0.8 * dt;
       if (p.healAcc >= 1) {
         p.healAcc = 0;
-        if (p.hp < p.maxhp) { p.hp++; burst(p.x, p.y, 3, 8, 8, 0.4); msg('+1 HP', 3, 0.8); tone(700, 900, 0.1, 'triangle', 0.05); }
+        G.cur.poolGiven = G.cur.poolGiven || 0;
+        if (p.hp < p.maxhp && G.cur.poolGiven < 2) { // the spring is not a battery
+          p.hp++; G.cur.poolGiven++;
+          burst(p.x, p.y, 3, 8, 8, 0.4); msg('+1 HP', 3, 0.8); tone(700, 900, 0.1, 'triangle', 0.05);
+        } else if (G.cur.poolGiven >= 2) msg('THE SPRING IS SPENT', 1, 1);
       }
     }
     for (const e of G.enemies) {
-      if (e.telegraph <= 0 && Math.hypot(e.x - pl.x, e.y - pl.y) < pl.r) e.hp = Math.min(e.hp0 || e.hp, e.hp + 0.8 * dt);
+      // enemies drink from the same finite spring you do — no infinite regen tank
+      if (e.telegraph <= 0 && Math.hypot(e.x - pl.x, e.y - pl.y) < pl.r) {
+        e.poolHeal = (e.poolHeal || 0);
+        if (e.poolHeal < 2) { const inc = Math.min(0.8 * dt, 2 - e.poolHeal); e.poolHeal += inc; e.hp = Math.min(e.hp0 || e.hp, e.hp + inc); }
+      }
     }
   }
 
@@ -1208,6 +1276,9 @@ function updatePlay(dt) {
   if (G.cur.goods) {
     for (const gd of G.cur.goods) {
       if (gd.dead || Math.hypot(gd.x - p.x, gd.y - p.y) > 3) continue;
+      G.buyHint = gd;                       // browsing is free
+      if (!G.buyPressed) continue;          // buying takes intent: press C
+      G.buyPressed = false;
       if (liveScore() >= gd.price) {
         gd.dead = true;
         G.run.bonus = (G.run.bonus || 0) - gd.price;
@@ -1216,7 +1287,7 @@ function updatePlay(dt) {
           if (p.held) G.pickups.push({ x: p.x, y: p.y, kind: p.held.kind, ammo: p.held.ammo, slot: true, ph: 0, cd: 1.2 });
           p.held = { kind: gd.kind, ammo: gd.kind === 'gun' ? 6 : gd.kind === 'bomb' ? 3 : undefined };
         } else if (gd.kind === 'heart') p.hp = Math.min(p.maxhp, p.hp + 1);
-        else if (gd.kind === 'sword') p.swords++;
+        else if (gd.kind === 'sword') p.swords = Math.min(MAX_SWORDS, p.swords + 1);
         msg('"THANK YOU." (-' + gd.price + ')  AURUM APPROVES', 5, 2);
         SFX.pickup();
       } else if (!G.cur.alarmed) {
@@ -1294,7 +1365,10 @@ function updatePlay(dt) {
         if (heal > 0) { p.hp = Math.min(p.maxhp, p.hp + heal); msg('+1 HP', 7, 1); }
         else msg('MORS: NOTHING', 1, 1.4);
       }
-      else if (pk.kind === 'sword') { p.swords++; msg('SWORD +1 DMG', 0, 1.4); }
+      else if (pk.kind === 'sword') {
+        if (p.swords < MAX_SWORDS) { p.swords = Math.min(MAX_SWORDS, p.swords + 1); msg('SWORD +1 DMG', 0, 1.4); }
+        else { G.run.bonus = (G.run.bonus || 0) + 40; msg('THE BLADE IS ALREADY KEEN (+40)', 5, 1.4); }
+      }
       else if (pk.kind === 'boots') { p.spdMult *= 1.08; msg('BOOTS +SPEED', 3, 1.4); }
     }
   }
@@ -1306,16 +1380,16 @@ function updatePlay(dt) {
   let moved = null;
   if (G.wrapCd > 0) { /* just crossed the woods seam — no door chaining */ }
   else {
-  if (p.y <= Y0 + 2.5 && Math.abs(p.x - mid) <= DOOR / 2 && G.cur.doors.n && !G.locked) moved = ['n', 0, -1];
-  if (p.y >= Y1 - 2.5 && Math.abs(p.x - mid) <= DOOR / 2 && G.cur.doors.s && !G.locked) moved = ['s', 0, 1];
-  if (p.x <= X0 + 2.5 && Math.abs(p.y - midY) <= DOOR / 2 && G.cur.doors.w && !G.locked) moved = ['w', -1, 0];
-  if (p.x >= X1 - 2.5 && Math.abs(p.y - midY) <= DOOR / 2 && G.cur.doors.e && !G.locked) moved = ['e', 1, 0];
+  if (p.y <= Y0 + 3.5 && Math.abs(p.x - mid) <= DOOR / 2 && G.cur.doors.n && !G.locked) moved = ['n', 0, -1];
+  if (p.y >= Y1 - 3.5 && Math.abs(p.x - mid) <= DOOR / 2 && G.cur.doors.s && !G.locked) moved = ['s', 0, 1];
+  if (p.x <= X0 + 3.5 && Math.abs(p.y - midY) <= DOOR / 2 && G.cur.doors.w && !G.locked) moved = ['w', -1, 0];
+  if (p.x >= X1 - 3.5 && Math.abs(p.y - midY) <= DOOR / 2 && G.cur.doors.e && !G.locked) moved = ['e', 1, 0];
   if (moved) {
     const [dir, dx, dy] = moved;
     const next = G.rooms.get((G.cur.gx + dx) + ',' + (G.cur.gy + dy));
     if (next) {
-      if (dir === 'n') p.y = Y1 - 4; if (dir === 's') p.y = Y0 + 4;
-      if (dir === 'w') p.x = X1 - 4; if (dir === 'e') p.x = X0 + 4;
+      if (dir === 'n') p.y = Y1 - 5; if (dir === 's') p.y = Y0 + 5;
+      if (dir === 'w') p.x = X1 - 5; if (dir === 'e') p.x = X0 + 5;
       enterRoom(next, dir);
     }
   }
@@ -1395,7 +1469,10 @@ function onKey(k) {
     if (!mod) newRun();
     return;
   }
-  if (G.state === 'judgment' && G.judgeT > 0.8 && (k === ' ' || k === 'enter' || k === 'x')) { nextFloor(); return; }
+  if (G.state === 'judgment' && (k === ' ' || k === 'enter' || k === 'x')) {
+    if (G.judgeT < 0.8) { G.judgeT = 1.1; return; } // first press: land every card now
+    nextFloor(); return;                            // second press: descend
+  }
   if (G.state === 'dead') {
     if (k === 'r') { newRun(); return; }
     if (!mod && G.deadT > 1.2) { G.state = 'title'; G.titleT = 0; return; } // return to the beginning
@@ -1492,6 +1569,9 @@ function drawWorld() {
     const spr = SPR[gd.kind];
     if (spr) blit(spr, gd.x - spr[0].length / 2, gd.y - spr.length / 2 + Math.sin(G.t * 2 + gd.x) * 0.8, ITEMS[gd.kind] ? ITEMS[gd.kind].ci : 7, 0.9, false);
     A.text(gd.x - 2, gd.y + 3, String(gd.price), liveScore() >= gd.price ? 5 : 7, 0.85);
+    if (Math.hypot(gd.x - G.player.x, gd.y - G.player.y) <= 3) {
+      A.text(gd.x - 6, gd.y + 5, liveScore() >= gd.price ? '[C] BUY' : '[C] TOO POOR', liveScore() >= gd.price ? 5 : 7, 0.9);
+    }
   }
   // stairs + orbiting glyph vortex
   if (G.cur.type === 'stairs' && G.cur.cleared) {
@@ -1534,11 +1614,28 @@ function drawWorld() {
       continue;
     }
     let bright = 0.85 * Math.max(0.35, Math.min(1, lv * 1.7));
-    if (e.state === 'windup') bright = 1.0 + Math.sin(G.t * 30) * 0.3; // telegraph flash beats darkness
+    if (e.state === 'windup') bright = 0.55 + Math.sin(G.t * 24) * 0.45; // full-depth pulse (never clamps) beats darkness
     if (e.flash > 0) bright = 1.6;
     const frame = ((G.t * 6) | 0) % 2;
     const spr = SPR[e.type][frame];
     blit(spr, e.x - spr[0].length / 2, e.y - spr.length / 2, e.ci, bright, e.vx > 0.5);
+    // the windup draws its OWN reach: a chevron as long as the lunge will actually travel
+    if (e.state === 'windup') {
+      const la = Math.atan2(p.y - e.y, p.x - e.x);
+      const reach = e.spd * LUNGE_MULT * LUNGE_TIME * (mut('HASTE') ? 1.4 : mut('MOLASSES') ? 0.7 : 1);
+      for (let r2 = 2; r2 < reach; r2 += 1.2) {
+        px(e.x + Math.cos(la) * r2, e.y + Math.sin(la) * r2 * 0.8, 0, 0.8);
+      }
+      px(e.x + Math.cos(la + 0.4) * (reach - 1), e.y + Math.sin(la + 0.4) * (reach - 1) * 0.8, 0, 0.7);
+      px(e.x + Math.cos(la - 0.4) * (reach - 1), e.y + Math.sin(la - 0.4) * (reach - 1) * 0.8, 0, 0.7);
+    }
+    // turret aim: 0.3s of real time before the bolt, at every room speed
+    if (e.type === 'turret' && e.aimT > 0) {
+      const aa = Math.atan2(p.y - e.y, p.x - e.x);
+      const k = 1 - e.aimT / TURRET_AIM;
+      for (let r2 = 3; r2 < 3 + 4 * k; r2 += 1) px(e.x + Math.cos(aa) * r2, e.y + Math.sin(aa) * r2 * 0.8, 5, 0.9);
+      if (((G.t * 20) | 0) % 2 === 0) px(e.x, e.y - 3.5, 5, 1);
+    }
     // IRONFRONT: the iron face gleams on the guarded side
     if (mut('IRONFRONT') && e.faceA !== undefined) {
       px(e.x + Math.cos(e.faceA) * 3.4, e.y + Math.sin(e.faceA) * 2.8, 0, 0.9);
@@ -1641,7 +1738,8 @@ function drawHud() {
   const hearts = '#'.repeat(p.hp) + '-'.repeat(Math.max(0, p.maxhp - p.hp));
   A.text(2, 0, 'DUCK SOULS', 1);
   A.text(14, 0, 'FLOOR ' + G.depth, 5);
-  A.text(24, 0, 'HP [' + hearts + ']', p.hp <= 1 ? 7 : 0);
+  // at 1 HP the block pulses: hue alone is unreadable at 10px mid-fight
+  A.text(24, 0, 'HP [' + hearts + ']', p.hp <= 1 ? 7 : 0, p.hp <= 1 ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 10)) : 1);
   if (p.dashCd <= 0) A.text(38, 0, 'DASH READY', 3);
   else { // live cooldown bar
     const frac = Math.max(0, Math.min(1, 1 - p.dashCd / (st.dashCd + 0.13)));
@@ -1649,8 +1747,7 @@ function drawHud() {
   }
   A.text(52, 0, 'SCORE ' + liveScore(), 2);
   A.text(66, 0, 'K ' + G.run.kills, 1, 0.7);
-  A.text(74, 0, 'BEST ' + G.best, 1, 0.6);
-  A.text(88, 2, 'SEED ' + G.seed.toString(16).toUpperCase(), 1, 0.4);
+  A.text(88, 2, 'SEED ' + G.seed.toString(16).toUpperCase() + '  BEST ' + G.best, 1, 0.4);
   // pantheon strip: glyph lit if boon, barred if curse (shape = second channel)
   let x = 96;
   for (const g of P.GODS) {
@@ -1667,16 +1764,24 @@ function drawHud() {
   A.text(2, 2, heldTxt, p.held ? ITEMS[p.held.kind].ci : 1, p.held ? 1 : 0.5);
   if (G.cur.mut) A.text(46, 2, '[ ' + MUT[G.cur.mut].name + ' ]', MUT[G.cur.mut].ci, 0.8 + 0.2 * Math.sin(G.t * 3));
   if (p.digestT > 0) A.text(72, 2, 'DIGESTING ' + p.digestT.toFixed(1), 2, 0.8);
-  // minimap: # you, > stairs, $ treasure/chest, = cleared, blank unknown
-  let mm = '';
+  // minimap with actual geometry: rooms sit where they sit, so you can navigate back
+  // to a chest instead of guessing (a flat list encodes zero adjacency)
   const cur = G.cur;
-  for (const r of G.rooms.values()) {
-    const g = r === cur ? '#' : r.type === 'stairs' && r.entered ? '>' :
-      (r.chest && !r.chest.opened && r.entered) || r.type === 'treasure' ? '$' :
-        r.cleared && r.entered ? '=' : r.entered ? '.' : ' ';
-    mm += '[' + g + ']';
+  const rs = [...G.rooms.values()];
+  const gx0 = Math.min(...rs.map(r => r.gx)), gy0 = Math.min(...rs.map(r => r.gy));
+  const gw = Math.max(...rs.map(r => r.gx)) - gx0 + 1;
+  const mmx = COLS - gw * 4 - 3, mmy = 2;
+  for (const r of rs) {
+    const known = r.entered || [...G.rooms.values()].some(o => o.entered &&
+      Math.abs(o.gx - r.gx) + Math.abs(o.gy - r.gy) === 1);
+    if (!known) continue;
+    const g = r === cur ? '#' : !r.entered ? '?' :
+      r.type === 'stairs' ? '>' :
+        (r.chest && !r.chest.opened) || (r.type === 'treasure' && r.items && r.items.length) ? '$' :
+          r.cleared ? '=' : '!';
+    const ci = r === cur ? 5 : g === '>' ? 6 : g === '$' ? 5 : g === '!' ? 7 : 1;
+    A.text(mmx + (r.gx - gx0) * 4, mmy + (r.gy - gy0) * 2, '[' + g + ']', ci, r === cur ? 1 : 0.65);
   }
-  A.text(COLS - mm.length - 2, 2, mm, 1, 0.6);
   // messages
   let my = 7;
   for (const m of G.msgs) {
@@ -1693,7 +1798,7 @@ function drawIntro(dt) {
   G.introGl = G.introGl || 0;
   let done = 0;
   INTRO_LINES.forEach((line, i) => {
-    const el = G.introT - i * 2.4;
+    const el = G.introT - i * 1.4;
     if (el <= 0) return;
     const finished = typeText(26 + i * 5, line, i === INTRO_LINES.length - 1 ? 5 : 0, el, 26, Math.min(1, el * 2));
     if (finished) {
@@ -1702,7 +1807,7 @@ function drawIntro(dt) {
     }
   });
   if (done === INTRO_LINES.length && ((G.t * 1.5) | 0) % 2 === 0) A.textC(60, '- ANY KEY: WAKE -', 5);
-  if (G.introT > 0.6) A.textC(84, 'any key skips', 1, 0.35);
+  if (G.introT > 0.4) A.textC(84, 'any key skips', 1, 0.7);
 }
 
 function drawLore(dt) {

@@ -13,10 +13,28 @@
 
   // score 0..1 -> letter
   const BANDS = [[0.9, 'S'], [0.72, 'A'], [0.52, 'B'], [0.32, 'C'], [-1, 'F']];
-  const DELTA = { S: 10, A: 7, B: 3, C: -4, F: -9 };
+  const DELTA = { S: 10, A: 7, B: 3, C: -4, F: -7 };
   const BOON_AT = 70, CURSE_AT = 25, START_FAVOR = 50;
 
   function letter(score) { for (const [t, L] of BANDS) if (score >= t) return L; return 'F'; }
+
+  // Farmable inputs are capped BEFORE grading: a fountain-parked duck can supply
+  // unlimited interrupts and dash-throughs, and grass is unlimited by design. A grade
+  // you can grind is not a grade. (exploit-hunter seat, 2026-07-20)
+  const CAP = { interrupts: 5, dashThroughs: 6, tuftsCut: 20 };
+  function capStats(f) {
+    return { ...f,
+      interrupts: Math.min(f.interrupts || 0, CAP.interrupts),
+      dashThroughs: Math.min(f.dashThroughs || 0, CAP.dashThroughs),
+      tuftsCut: Math.min(f.tuftsCut || 0, CAP.tuftsCut),
+      // the card shows what you DID and what was COUNTED — never one pretending to be the other
+      rawInterrupts: f.interrupts || 0,
+      rawDashThroughs: f.dashThroughs || 0,
+      rawTuftsCut: f.tuftsCut || 0,
+      interruptsCapped: (f.interrupts || 0) > CAP.interrupts,
+      dashThroughsCapped: (f.dashThroughs || 0) > CAP.dashThroughs,
+      tuftsCapped: (f.tuftsCut || 0) > CAP.tuftsCut };
+  }
 
   // floorStats contract (all counters, reset each floor):
   // { time, roomCount, kills, interrupts, dmgTaken, dashThroughs, pickups,
@@ -47,9 +65,12 @@
         // the gun is not the beak: ranged kills count at one-third honor
         const ranged = f.rangedKills || 0;
         const melee = Math.max(0, f.kills - ranged);
-        return clamp01((melee + ranged / 3) / (4 + f.roomCount * 1.5) + f.interrupts * 0.12);
+        // interrupts are seasoning, not the meal: capped at 5 they can add at most 0.20,
+        // so farming them can never carry a grade on its own
+        return clamp01((melee + ranged / 3) / (4 + f.roomCount * 1.5) + f.interrupts * 0.04);
       },
-      stat(f) { return `${f.kills} slain (${f.rangedKills || 0} ranged) / ${f.interrupts} cut`; },
+      // the displayed number IS the graded number (capped inputs show their cap)
+      stat(f) { return `${f.kills} slain (${f.rangedKills || 0} ranged) / ${f.rawInterrupts} cut${f.interruptsCapped ? ' (' + f.interrupts + ' counted)' : ''}`; },
       lines: {
         S: 'My children speak your name with fear. Good.', A: 'You met the beak. I honor that.',
         B: 'Adequate slaughter.', C: 'You avoid my children. They notice.',
@@ -62,9 +83,10 @@
       boon: { key: 'BOON_UMBRA', desc: '+1 max HP' },
       curse: { key: 'CURSE_UMBRA', desc: 'dash cooldown +40%' },
       score(f) {
-        return clamp01(1 - f.dmgTaken * 0.45 + f.dashThroughs * 0.08);
+        // dashes can polish a clean floor but never launder a hit taken (max +0.18)
+        return clamp01(1 - f.dmgTaken * 0.45 + f.dashThroughs * 0.03);
       },
-      stat(f) { return `${f.dmgTaken} hits taken / ${f.dashThroughs} ghosted`; },
+      stat(f) { return `${f.dmgTaken} hits taken / ${f.rawDashThroughs} ghosted${f.dashThroughsCapped ? ' (' + f.dashThroughs + ' counted)' : ''}`; },
       lines: {
         S: 'Untouched. You understand me.', A: 'Almost pristine. Almost.',
         B: 'You were touched. I felt it from here.', C: 'You let them TOUCH you.',
@@ -79,9 +101,10 @@
       score(f) {
         // the Hoarder loves harvest AND circulation — spending is still touching gold
         return clamp01(f.pickups * 0.3 + f.treasureFound * 0.4 + (f.chestsOpened || 0) * 0.4
-          + (f.chaliceDelivered || 0) * 0.5 + Math.min(0.4, (f.spent || 0) / 300) + (f.tuftsCut || 0) * 0.03);
+          + (f.chaliceDelivered || 0) * 0.5 + Math.min(0.4, (f.spent || 0) / 300)
+          + Math.min(0.2, (f.tuftsCut || 0) * 0.01));
       },
-      stat(f) { return `${f.pickups} taken / ${f.spent || 0} spent / ${f.tuftsCut || 0} cut`; },
+      stat(f) { return `${f.pickups} taken / ${f.spent || 0} spent / ${f.rawTuftsCut} cut${f.tuftsCapped ? ' (' + f.tuftsCut + ')' : ''}`; },
       lines: {
         S: 'Yes. Take EVERYTHING.', A: 'A healthy appetite.',
         B: 'You left things on the floor. On the FLOOR.', C: 'Poverty is a choice you keep making.',
@@ -93,7 +116,10 @@
       lore: 'Death itself. Grades everyone eventually. Secretly wants you to come back.',
       boon: { key: 'BOON_MORS', desc: 'refuse your first death each run' },
       curse: { key: 'CURSE_MORS', desc: 'hearts heal nothing' },
-      score(f) { return clamp01(f.depth / 6); },
+      // Death grades depth generously enough that a normal run isn't a standing insult:
+      // curses have no depth-gate (punishment shouldn't be dodgeable by dying early), so
+      // an ungenerous curve would leave every player permanently cursed.
+      score(f) { return clamp01(0.15 + f.depth / 5); },
       stat(f) { return `depth ${f.depth}`; },
       lines: {
         S: 'Deep. I will wait a little longer.', A: 'You descend well.',
@@ -108,7 +134,8 @@
   }
 
   // pure: floorStats -> cards (one per god)
-  function judge(f, favor) {
+  function judge(rawF, favor) {
+    const f = capStats(rawF);
     return GODS.map(g => {
       const score = g.score(f);
       const L = letter(score);

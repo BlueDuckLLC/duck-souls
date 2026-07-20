@@ -29,8 +29,37 @@ This measures the load-bearing preconditions of delight — pace, fairness, read
 stakes, non-degeneracy — not delight itself. A real human contradicting a green metric
 wins; the hypothesis was wrong, and FUN.md gets fixed, not the human.
 
-## Red → green ledger
+## Red → green ledger (2026-07-20)
 
-| id | RED (2026-07-20) | GREEN | verdict |
-|----|------------------|-------|---------|
-| (filled by the cycle below) |
+RED: `3/15` (transcript `fun_red.json`, committed failing at 5d6c761).
+GREEN: `17/17` (`fun_green.json`) — 17 because the refutation round ADDED two hypotheses
+rather than relaxing any. No threshold was edited after RED; three test *methods* were
+strengthened (F1, F8, F11, F12a-c) when the Bored Player seat proved they measured code
+shape instead of behavior.
+
+| id | RED | GREEN | fix that moved it |
+|----|-----|-------|-------------------|
+| F1 | state-blind contact (4.6 radius in every AI state) | lunge=hit / walk-by=miss at 3.0 cells | `contactHit()` state-aware ellipse |
+| F2a | pulse `1.0+0.3` — clamped to an invisible dim | base 0.55 amp 0.45, plus a chevron drawn to true lunge reach | full-depth pulse |
+| F2b | none (bolts appeared unannounced) | `TURRET_AIM=0.3` real-time, speed-invariant | aim phase + tick |
+| F3 | circular hitbox vs 8×6 sprite | phantom vertical hit at (0,±4.4) gone | sprite-matched ellipse |
+| F4 | kill 0 vs hurt 0.09 (punishment out-froze reward) | kill 0.11 > hurt 0.09 | kill hitstop |
+| F5 | 9.6s crawl before the last line | stagger 1.4s; browser: 2.8s / 3 presses to play | stagger + early skip |
+| F6 | treasure/TOLL could neighbor start → cold open | hot room adjacent on every floor | BFS dist ≥ 2 for treasure + forced hot neighbor |
+| F7 | (already passing) | 41ms measured | — |
+| F8 | 5 suicide laps → 3 permanent boons | 0 boons on a floor-1 run | depth-3 boon gate + 30% favor decay |
+| F8b | (added by refutation) | 3 boons at floor 3 — the gate is not a wall | — |
+| F9 | flat HP → one-shots by depth 4 | duck 3+⌊d/2⌋, sword cap 3 | depth scaling |
+| F10 | slashed through pillars | blocked behind solid, hits on clear line | `losBlocked()` 3-point ray |
+| F11 | reach 8.5 vs contact 4.6 = free kiting | reach 7.0 vs threat 8.2 (d1) — contested | reach + shorter lunge |
+| F12a-c | caps sat ABOVE saturation (vacuous) | farming swing ≤ 0.20 from a bare floor | weights lowered so caps bind |
+| F12d | (added by refutation) | card reads "99 cut (5 counted)" | honest display of capped grading |
+
+### Refuted and repaired
+
+The Bored Player seat broke five greens; all were repaired rather than argued with:
+reach 6.0 made melee a coin-flip (threat 10.25 vs reach 6.0) → 7.0 + shorter lunge;
+`newRun()` read `boon()` before resetting `G.run`, leaking a phantom max-HP → reordered;
+enemy fountain regen was uncapped while the player's was capped → both capped at 2;
+MORS's `depth/6` curve left ordinary players permanently cursed (curses have no gate,
+correctly) → `0.15 + depth/5` and F-delta −9 → −7.
