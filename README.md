@@ -141,3 +141,16 @@ Eight more enemies homage the first top-down Zelda: OCTOROK (wanders, spits rock
 DARKNUT (armored — frontal hits bounce off its shield, flank it with the dash), and PEAHAT
 (a spinning flower, invulnerable while whirling, vulnerable only when it lands). 24 new
 enemies total. The game is now branded **DANK SOULS** (the repo/URL stay duck-souls).
+
+## The Nightmares (v7 final stage) — bosses every 3rd floor
+
+On floors 3, 6, 9… the key→chest ritual yields a **POTION** instead of loot. Touch it and a
+psychedelic trance takes you — wavy parallax glyph-drift, breathing sine-rings, the boss's
+name resolving out of static — then you wake in the arena. Three original nightmares rotate:
+**THE FEATHER-LEVIATHAN**, **THE CLOCKWORK INQUISITOR**, **THE DROWNED KING**. Each has 3
+forms with unique sprites and attack pairs (feather-storms, sweeps, gear-spirals, cog
+summons, rising tides, charges) and floats **blue orb weakpoints** (Saros-style): break
+every orb to shatter the form; shatter all three forms to win (+500, a bestiary unlock, the
+ledger remembers). One swing breaks one orb. The phase machine is pure, node-tested, and
+certified (boss.js / boss_test.js). The BESTIARY (title menu) is a coin-op attract-mode
+roll of all 27 enemies with their homages; bosses stay silhouetted until felled.

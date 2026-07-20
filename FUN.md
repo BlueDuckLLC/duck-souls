@@ -118,3 +118,11 @@ distinct size+shape, vine-grown walls, living cave/garden vines.
 The behavioral bot is a weak pathfinder; it undercounts variety/cadence on the new
 geometry. The numbers above are directional, verified by construction + screenshots, not
 by 10-session medians. A stronger bot is owed before claiming F14-F17 as measured greens.
+
+## Round 5 note (boss system, 2026-07-20)
+
+boss.js phase machine: certified red→green (9 failed → 0, build_ledger 🔒). Boss ritual +
+fight verified end-to-end in-browser via the REAL hit path (slash → orb → stagger → 3 forms
+→ defeat → +500/ledger/stairs). OWED: behavioral fun-hypotheses for the boss fight itself
+(attack dodgeability at depth, trance skip latency, orbs-reachable-per-form) — the next
+/tdd-fun round's RED set. Recorded per the honest-limits law rather than claimed.

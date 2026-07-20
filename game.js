@@ -289,6 +289,7 @@ const SPR = {
   chalice: ['# #', '###', ' # ', '###'],
   chest: ['#####', '#o$o#', '#####', ' ### '],
   bomb: [' + ', '###', '###'],
+  potion: [' # ', '###', '#o#', '###'],
   hammer: [' ###', ' ###', '  # ', '  # '],
   whip: ['#   ', ' ## ', '   #', '  ##'],
   rapier: ['   #', '  # ', ' #  ', '#   '],
@@ -1400,6 +1401,164 @@ function roomCleared() {
   }
 }
 
+// ---------- THE BOSSES: three original nightmares, every 3rd floor ----------
+// Ritual: key -> chest -> POTION -> trance -> the fight. Phase logic lives in boss.js
+// (pure, certified); each form = unique sprite + 2 of the boss's 3 attacks + orb weakpoints.
+const BOSSES = [
+  {
+    id: 'leviathan', name: 'THE FEATHER-LEVIATHAN', tagline: 'a serpent that remembers the sky', ci: 3,
+    forms: [{ orbs: 3, atk: ['storm', 'sweep'] }, { orbs: 4, atk: ['sweep', 'dive'] }, { orbs: 5, atk: ['storm', 'dive'] }],
+    sprites: [
+      ['   ~~~###~~~   ', ' ~##########~ ', '~#o###########~', ' ~###~~~~####~ ', '   ~~~    ~~~  '],
+      ['    ~###~   ', '  ~#####~  ', ' ~#o####~ ', '~########~', ' ~######~ ', '  ~~##~~  ', '   ~##~   '],
+      ['  ~ # ~ # ~  ', ' # ~ # ~ # ', '~#o#~###~#~', ' # ~ # ~ # ', '  ~ # ~ #  '],
+    ],
+  },
+  {
+    id: 'inquisitor', name: 'THE CLOCKWORK INQUISITOR', tagline: 'it winds. it judges. it strikes.', ci: 5,
+    forms: [{ orbs: 3, atk: ['spiral', 'pendulum'] }, { orbs: 4, atk: ['pendulum', 'cogs'] }, { orbs: 5, atk: ['spiral', 'cogs'] }],
+    sprites: [
+      ['  #######  ', ' ##(o)(o)## ', '###########', ' ##|||||## ', '  #######  '],
+      [' ##  ###  ## ', '##(o)===(o)##', ' ####|#|#### ', '  ##/   \\##  '],
+      ['#   ###   #', ' # (o|o) # ', '  ##|||##  ', ' #  |||  # ', '#   ###   #'],
+    ],
+  },
+  {
+    id: 'king', name: 'THE DROWNED KING', tagline: 'he never stopped being royalty. only breathing.', ci: 6,
+    forms: [{ orbs: 3, atk: ['tide', 'grasp'] }, { orbs: 4, atk: ['grasp', 'whirl'] }, { orbs: 5, atk: ['tide', 'whirl'] }],
+    sprites: [
+      ['  |||||  ', ' ####### ', '#o#####o#', '#########', ' ##   ## '],
+      ['   |||||   ', '  #######  ', ' #o#####o# ', '~#########~', '~~##   ##~~'],
+      ['~~~|||||~~~', '~#########~', '~#o~###~o#~', '~~#######~~', ' ~~~~#~~~~ '],
+    ],
+  },
+];
+
+function bossForDepth(depth) { return BOSSES[(Math.floor(depth / 3) - 1 + BOSSES.length * 9) % BOSSES.length]; }
+function bossRoomKey() { for (const [k, r] of G.rooms) if (r.type === 'stairs') return k; return '0,0'; }
+
+function enterBossArena() {
+  const stairsRoom = G.rooms.get(bossRoomKey());
+  stairsRoom.mut = null; stairsRoom.spawned = true; stairsRoom.cleared = false;
+  G.state = 'play';
+  enterRoom(stairsRoom, null);
+  G.enemies = []; // the arena belongs to the boss
+  startBossFight();
+}
+
+function startBossFight() {
+  const def = bossForDepth(G.depth);
+  G.boss = {
+    def, st: Boss.newBossState(def, G.depth),
+    x: (X0 + X1) / 2, y: Y0 + (Y1 - Y0) * 0.3, vx: 0, vy: 0,
+    atkT: 2, atkI: 0, staggerT: 0, t: 0, hitFlash: 0,
+  };
+  G.locked = true;
+  if (G.cur.mut !== 'WOODS') for (const [bx, by] of G.bars) G.solid[by * COLS + bx] = 1;
+  msg(def.name, def.ci, 3);
+  msg('destroy the orbs. all of them. three times.', 1, 3);
+  A.startGlitch(1, 0.4, 'chroma');
+  SFX.judge();
+}
+
+function updateBoss(dt) {
+  const b = G.boss, p = G.player, def = b.def;
+  b.t += dt; b.hitFlash = Math.max(0, b.hitFlash - dt);
+  if (b.st.staggered) { // form break window
+    b.staggerT -= dt;
+    if (b.staggerT <= 0) {
+      b.st = Boss.endStagger(b.st, def);
+      if (b.st.defeated) { bossDefeated(); return; }
+      msg('IT CHANGES', def.ci, 2); A.startGlitch(1, 0.4, 'pop'); SFX.die();
+      b.atkT = 2;
+    }
+    return;
+  }
+  // drift toward mid-arena height, sway
+  b.vx = Math.sin(b.t * 0.7) * 6; b.vy = Math.cos(b.t * 0.5) * 3;
+  b.x += b.vx * dt; b.y += b.vy * dt;
+  b.x = Math.max(X0 + 12, Math.min(X1 - 12, b.x)); b.y = Math.max(Y0 + 8, Math.min(Y1 - 20, b.y));
+  // attacks: alternate the form's two attacks, telegraphed
+  b.atkT -= dt;
+  if (b.atkT <= 0) {
+    const atks = def.forms[b.st.form].atk;
+    bossAttack(atks[b.atkI % atks.length], b);
+    b.atkI++;
+    b.atkT = Math.max(1.4, 2.6 - G.depth * 0.08);
+  }
+  // orb hit-testing: slash arc, player bullets, stars, booms
+  const orbs = Boss.orbPositions(b.st.orbs, b.x, b.y, b.t);
+  for (const o of orbs) {
+    let hit = false;
+    if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hit = true;
+    for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hit = true; pb.dead = true; }
+    for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hit = true;
+    for (const bm of G.booms) if (!bm.enemyBomb && Math.hypot(bm.x - o.x, bm.y - o.y) < 2.5) hit = true;
+    if (hit) {
+      b.st = Boss.hitOrb(b.st, def);
+      b.hitFlash = 0.15;
+      p.atkT = 0; // one swing breaks one orb — no multi-orb chains from a single slash
+      burst(o.x, o.y, 6, 16, 20, 0.5);
+      tone(900, 200, 0.12, 'square', 0.1);
+      G.shake = Math.max(G.shake, 2);
+      if (b.st.staggered) {
+        b.staggerT = 1.2;
+        msg('THE FORM BREAKS', 5, 1.5);
+        A.startGlitch(1, 0.5, 'shear');
+        burst(b.x, b.y, def.ci, 40, 30, 1);
+        G.shake = 6; G.hitstop = 0.12;
+      }
+      break; // one orb per frame
+    }
+  }
+  // contact with the boss body hurts
+  if (Math.hypot(p.x - b.x, p.y - b.y) < 8 && p.invulnT <= 0 && p.dashT <= 0) hurtPlayer(b);
+}
+
+function bossAttack(kind, b) {
+  const p = G.player;
+  const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
+  b.telegraphA = { kind, t: 0.45 }; // drawn as a flash before the volley lands
+  setTimeout(() => { }, 0); // (attacks fire below after the telegraph via aimed spawns)
+  if (kind === 'storm' || kind === 'spiral') {
+    const n = kind === 'spiral' ? 10 : 8;
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2 + (kind === 'spiral' ? b.t : 0);
+      G.bolts.push({ x: b.x, y: b.y, vx: Math.cos(a) * 13, vy: Math.sin(a) * 13, life: 4 });
+    }
+  } else if (kind === 'sweep' || kind === 'pendulum') {
+    for (let i = 0; i < 6; i++) {
+      const a = Math.atan2(dy, dx) + (i - 2.5) * 0.22;
+      G.bolts.push({ x: b.x, y: b.y, vx: Math.cos(a) * 16, vy: Math.sin(a) * 16, life: 4 });
+    }
+  } else if (kind === 'dive' || kind === 'grasp') {
+    b.vx = dx / d * 30; b.vy = dy / d * 30; // a short charge at you (body contact is the threat)
+  } else if (kind === 'cogs') {
+    const rng2 = mulberry32((G.t * 1000) | 0);
+    spawnOne('splitter', rng2, () => ({ x: b.x + 8, y: b.y }), G.cur);
+    G.enemies.forEach(e => { if (e.telegraph > 0.5) e.telegraph = 0.5; });
+  } else if (kind === 'tide' || kind === 'whirl') {
+    for (let i = 0; i < 9; i++) G.bolts.push({ x: X0 + 4 + i * ((X1 - X0 - 8) / 8), y: Y1 - 2, vx: 0, vy: -11, life: 5 });
+  }
+  tone(140, 60, 0.3, 'sawtooth', 0.1);
+}
+
+function bossDefeated() {
+  const def = G.boss.def;
+  burst(G.boss.x, G.boss.y, def.ci, 80, 35, 1.5);
+  G.shake = 8; G.hitstop = 0.2;
+  A.startGlitch(1, 0.6, 'chroma');
+  G.run.bonus = (G.run.bonus || 0) + 500;
+  G.ledger['felled_' + def.id] = 1;
+  G.ledger.bossesFelled = (G.ledger.bossesFelled || 0) + 1;
+  saveLedger();
+  msg(def.name + ' FALLS. +500', 5, 3);
+  G.boss = null;
+  G.cur.cleared = true; G.cur.bossDone = true;
+  roomCleared();
+  SFX.stairs();
+}
+
 // archetype AI for the arcade roster. Sets e.vx/e.vy (shared movement integrates it) and
 // fires projectiles. Every lethal move is telegraphed (windup/aim) to keep F2/F13 honest.
 function arcadeAI(e, dt, dx, dy, d, p) {
@@ -1964,12 +2123,18 @@ function updatePlay(dt) {
         ch.opened = true; p.held = null;
         G.floorStats.chestsOpened++;
         G.run.bonus = (G.run.bonus || 0) + 100;
-        const jack = ['heart', Math.random() < 0.5 ? 'sword' : 'boots', 'heart'];
-        jack.forEach((k, i) => G.pickups.push({ x: ch.x - 4 + i * 4, y: ch.y + 4, kind: k, ph: 0 }));
+        if (G.depth % 3 === 0 && !G.cur.bossDone && !G.rooms.get(bossRoomKey()).bossDone) {
+          // BOSS FLOOR: the chest holds the POTION — the invitation
+          G.pickups.push({ x: ch.x, y: ch.y + 4, kind: 'potion', ph: 0, potion: true });
+          msg('A POTION. IT IS LOOKING AT YOU.', 8, 2.6);
+        } else {
+          const jack = ['heart', Math.random() < 0.5 ? 'sword' : 'boots', 'heart'];
+          jack.forEach((k, i) => G.pickups.push({ x: ch.x - 4 + i * 4, y: ch.y + 4, kind: k, ph: 0 }));
+          msg('THE CHEST OPENS. AURUM HOWLS WITH JOY. +100', 5, 2.6);
+        }
         burst(ch.x, ch.y, 5, 40, 26, 0.9);
         A.startGlitch(0.8, 0.35, 'pop');
         G.shake = 3;
-        msg('THE CHEST OPENS. AURUM HOWLS WITH JOY. +100', 5, 2.6);
         SFX.stairs();
       } else if (ch.msgCd <= 0) { ch.msgCd = 2.5; msg('LOCKED. THE KEY IS IN ANOTHER ROOM.', 1, 1.6); }
     }
@@ -1993,6 +2158,13 @@ function updatePlay(dt) {
         const heal = 1 * (curse('mors') ? FX.CURSE_MORS : 1);
         if (heal > 0) { p.hp = Math.min(p.maxhp, p.hp + heal); msg('+1 HP', 7, 1); }
         else msg('MORS: NOTHING', 1, 1.4);
+      }
+      else if (pk.kind === 'potion') {
+        // the trance takes you; the boss is on the other side
+        G.state = 'trance'; G.tranceT = 0;
+        G.tranceBoss = bossForDepth(G.depth);
+        A.startGlitch(1, 0.6, 'chroma');
+        tone(80, 400, 2.0, 'sawtooth', 0.08); tone(120, 500, 2.0, 'sine', 0.06, 0.1);
       }
       else if (pk.kind === 'sword') {
         if (p.swords < MAX_SWORDS) { p.swords = Math.min(MAX_SWORDS, p.swords + 1); msg('SWORD +1 DMG', 0, 1.4); }
@@ -2020,8 +2192,10 @@ function updatePlay(dt) {
   }
   }
 
-  // stairs
-  if (G.cur.type === 'stairs' && G.cur.cleared) {
+  // the boss owns its arena
+  if (G.boss) updateBoss(dt);
+  // stairs (on boss floors, only after the boss falls)
+  if (G.cur.type === 'stairs' && G.cur.cleared && (G.depth % 3 !== 0 || G.cur.bossDone)) {
     if (Math.abs(p.x - 80) < 3 && Math.abs(p.y - 47) < 3) beginJudgment();
   }
 }
@@ -2267,6 +2441,45 @@ function drawCredits(dt) {
   if (G.credT > 0.4 && ((G.t * 1.5) | 0) % 2 === 0) A.text(2, ROWS - 3, 'any key: back', 1, 0.5);
 }
 
+// the BESTIARY: coin-op attract-mode "MEET YOUR ENEMIES" roll
+function drawBestiary(dt) {
+  G.bestT = (G.bestT || 0) + dt;
+  plasma(G.t * 0.05, 0.07, [7, 2, 1]);
+  A.textC(4, 'M E E T   Y O U R   E N E M I E S', 5);
+  const roster = [
+    ['duck', 'DUCK-DRAGON', 'the brood'], ['bat', 'BAT', 'erratic'], ['turret', 'TURRET-SNAKE', 'it aims'],
+    ...Object.entries(ENEMIES).map(([k, d]) => [k, k.toUpperCase(), d.homage]),
+  ];
+  const scroll = G.bestT * 6;
+  roster.forEach((row, i) => {
+    const y = 12 + i * 8 - (scroll % (roster.length * 8));
+    const yy = ((y - 12) % (roster.length * 8) + roster.length * 8) % (roster.length * 8) + 12;
+    if (yy > ROWS - 8) return;
+    const [key, name, homage] = row;
+    const frames = SPR[key];
+    if (frames && key !== 'slinky') {
+      const spr = Array.isArray(frames[0]) ? frames[((G.t * 4) | 0) % frames.length] : frames;
+      blit(spr, 34 - spr[0].length / 2, yy, (ENEMIES[key] || { ci: 2 }).ci, 0.9, false);
+    } else if (key === 'slinky') {
+      for (let s = 0; s < 6; s++) px(30 + s * 1.5 + Math.sin(G.t * 3 + s) * 1.5, yy + 2, 5, 1 - s * 0.12);
+    }
+    A.text(46, yy + 1, name, (ENEMIES[key] || { ci: 2 }).ci, 1);
+    A.text(46, yy + 3, homage, 1, 0.55);
+  });
+  // the three bosses, silhouetted until felled
+  A.text(96, 12, 'THE NIGHTMARES (every 3rd floor)', 8, 0.8);
+  BOSSES.forEach((bd, i) => {
+    const met = G.ledger['felled_' + bd.id];
+    const y = 16 + i * 16;
+    if (met) { blit(bd.sprites[0], 100, y, bd.ci, 0.9, false); A.text(100, y + 7, bd.name, bd.ci, 1); }
+    else {
+      for (let j = 0; j < 24; j++) px(100 + (j * 7) % 14, y + (j * 3) % 5, 1, Math.random() * 0.4);
+      A.text(100, y + 7, '? ? ?  (unfelled)', 1, 0.5);
+    }
+  });
+  if (((G.t * 1.5) | 0) % 2 === 0) A.textC(87, '- any key: back -', 5);
+}
+
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
@@ -2303,7 +2516,7 @@ function onKey(k) {
     return;
   }
   if (G.state === 'title') {
-    const MENU = ['start', 'library', 'credits', 'rules', 'memories'];
+    const MENU = ['start', 'library', 'bestiary', 'credits', 'rules', 'memories'];
     if (k === 'arrowdown' || k === 's') { G.menuI = ((G.menuI || 0) + 1) % MENU.length; return; }
     if (k === 'arrowup' || k === 'w') { G.menuI = ((G.menuI || 0) + MENU.length - 1) % MENU.length; return; }
     // shortcuts still work
@@ -2315,6 +2528,7 @@ function onKey(k) {
       const sel = MENU[G.menuI || 0];
       if (sel === 'start') newRun();
       else if (sel === 'library') { G.state = 'gallery'; G.galT = 0; }
+      else if (sel === 'bestiary') { G.state = 'bestiary'; G.bestT = 0; }
       else if (sel === 'credits') { G.state = 'credits'; G.credT = 0; }
       else if (sel === 'rules') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); }
       else if (sel === 'memories') { G.state = 'lore'; G.loreT = 0; }
@@ -2324,6 +2538,8 @@ function onKey(k) {
     return;
   }
   if (G.state === 'credits') { if (!mod && G.credT > 0.4) { G.state = 'title'; G.titleT = 0; } return; }
+  if (G.state === 'trance') { if (!mod && G.tranceT > 1) enterBossArena(); return; }
+  if (G.state === 'bestiary') { if (!mod) { G.state = 'title'; G.titleT = 0; } return; }
   if (G.state === 'judgment' && (k === ' ' || k === 'enter' || k === 'x')) {
     if (G.judgeT < 0.8) { G.judgeT = 1.1; return; } // first press: land every card now
     nextFloor(); return;                            // second press: descend
@@ -2600,6 +2816,24 @@ function drawWorld() {
       A.text(h.x - 0.5, h.y - 5, h.digestT.toFixed(1), 7, 0.9);
     }
   }
+  // THE BOSS: form sprite, floating blue orb weakpoints, stagger flash, attack telegraph
+  if (G.boss) {
+    const b = G.boss, def = b.def;
+    const spr = def.sprites[b.st.form];
+    const stag = b.st.staggered;
+    const bBright = stag ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)) : (b.hitFlash > 0 ? 1.5 : 0.95);
+    blit(spr, b.x - spr[0].length / 2, b.y - spr.length / 2, def.ci, bBright, false);
+    if (b.telegraphA && b.telegraphA.t > 0) { b.telegraphA.t -= 1 / 60; rect(b.x - 2, b.y - 2, 4, 4, 5, 0.5 + 0.5 * Math.sin(G.t * 30)); }
+    // orb weakpoints ride the same fake-3D ring grammar as your health
+    const orbs = Boss.orbPositions(b.st.orbs, b.x, b.y, b.t);
+    for (const o of orbs) {
+      const sz = 0.8 + (o.depth + 1) * 0.5;
+      rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, 6, 0.6 + (o.depth + 1) * 0.2);
+      px(o.x, o.y - sz * 0.7, 0, 0.7);
+    }
+    // form pips
+    for (let f = 0; f < def.forms.length; f++) A.text(b.x - 3 + f * 3, b.y - spr.length / 2 - 3, f < b.st.form ? 'x' : f === b.st.form ? 'O' : 'o', f === b.st.form ? 5 : 1, 0.9);
+  }
   // THE BAT (gold, so you know it's trouble)
   if (G.bat) {
     const b = G.bat;
@@ -2863,7 +3097,7 @@ function drawTitle() {
   const led = G.ledger;
   const nLore = P.unlockedLore(led).length;
   const MENU = [['start', 'DESCEND'], ['library', 'CUTSCENE LIBRARY (' + (G.cineSeen ? G.cineSeen.size : loadCine().size) + '/12)'],
-  ['credits', 'CREDITS'], ['rules', 'HOW A PLANT HEARS THE RULES'], ['memories', 'MEMORIES (' + nLore + '/' + P.LORE.length + ')']];
+  ['bestiary', 'BESTIARY - MEET YOUR ENEMIES'], ['credits', 'CREDITS'], ['rules', 'HOW A PLANT HEARS THE RULES'], ['memories', 'MEMORIES (' + nLore + '/' + P.LORE.length + ')']];
   const mi = G.menuI || 0;
   MENU.forEach((m, i) => {
     const on = i === mi;
@@ -2993,12 +3227,42 @@ function frame(now) {
   if (G.state === 'cinema') drawCinema(dt);
   else if (G.state === 'gallery') drawGallery(dt);
   else if (G.state === 'credits') drawCredits(dt);
+  else if (G.state === 'bestiary') drawBestiary(dt);
   else if (G.state === 'intro') drawIntro(dt);
   else if (G.state === 'howto') drawHowto(dt);
   else if (G.state === 'lore') drawLore(dt);
   else if (G.state === 'title') drawTitle();
   else if (G.state === 'judgment') drawJudgment(dt);
   else if (G.state === 'dead') { drawDead(dt); drawHud(); }
+  else if (G.state === 'trance') {
+    // the potion: wavy parallax psychedelia; the boss name resolves out of static
+    G.tranceT += dt;
+    const T = G.tranceT;
+    for (let layer = 0; layer < 3; layer++) { // parallax glyph drift
+      const spd = 8 + layer * 14, al = 0.15 + layer * 0.12;
+      for (let i = 0; i < 40; i++) {
+        const gx2 = ((i * 47 + T * spd) % COLS + COLS) % COLS;
+        const gy2 = (i * 23 + layer * 31) % ROWS;
+        const wob = Math.sin(gy2 * 0.2 + T * (2 + layer)) * (3 + layer * 2); // the wave
+        px(gx2 + wob, gy2, [8, 6, 2, 4, 3][(i + layer) % 5], al * (0.6 + 0.4 * Math.sin(T * 3 + i)));
+      }
+    }
+    // sine-warped rings breathing out from center
+    for (let r2 = 4; r2 < 60; r2 += 6) {
+      const rr = r2 + Math.sin(T * 2 + r2 * 0.3) * 3;
+      for (let a = 0; a < Math.PI * 2; a += 0.15) {
+        px(80 + Math.cos(a) * rr + Math.sin(T + a * 3) * 2, 45 + Math.sin(a) * rr * 0.6, [8, 2, 5][((r2 / 6) | 0) % 3], 0.12 + 0.1 * Math.sin(T * 4 + r2));
+      }
+    }
+    if (Math.random() < 0.1) A.startGlitch(0.4 + Math.random() * 0.5, 0.15);
+    if (T > 1.2) { // the name resolves out of static
+      const nm = G.tranceBoss.name;
+      if (Math.random() < 0.8) A.textC(42, nm, G.tranceBoss.ci, Math.min(1, (T - 1.2)));
+      A.textC(46, G.tranceBoss.tagline, 1, Math.min(0.8, (T - 1.6) * 0.8));
+    }
+    if (T > 1 && ((G.t * 1.5) | 0) % 2 === 0) A.textC(80, 'any key: face it', 5, 0.6);
+    if (T > 4.5) enterBossArena();
+  }
   else if (G.state === 'descend') {
     // falling between floors: fake-3D character tunnel
     G.descT += dt;
