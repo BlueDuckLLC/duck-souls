@@ -27,7 +27,7 @@
     "id": "F4",
     "claim": "killing freezes the frame harder than being hit",
     "pass": true,
-    "detail": "kill hitstop 0.11 vs hurt 0.09"
+    "detail": "kill hitstop 0.11 vs hurt 0.1"
   },
   {
     "id": "F5",

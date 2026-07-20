@@ -118,10 +118,21 @@ for (const stats of [base, perfect, awful]) {
     t(`MUT ${key} consumed by game.js (${uses} refs)`, uses >= 2);
   }
   // challenge objects all reachable in code
-  for (const kind of ['gun', 'star', 'hotdog', 'lantern', 'key', 'chalice', 'bomb']) {
+  for (const kind of ['gun', 'star', 'hotdog', 'lantern', 'key', 'chalice', 'bomb',
+    'hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow']) {
     const uses = src.split(`'${kind}'`).length - 1;
     t(`item ${kind} wired into game.js (${uses} refs)`, uses >= 2);
   }
+  // 13 room architectures, each with a real builder or the organic fallback
+  const archs = ['CAVE', 'TEMPLE', 'CRYPT', 'CATHEDRAL', 'HALL', 'GARDEN', 'ROTUNDA',
+    'GROTTO', 'LABYRINTH', 'AQUEDUCT', 'BONEYARD', 'OBSERVATORY', 'THORNWOOD'];
+  t(`thirteen room architectures defined`, archs.every(a => src.includes(a + ':')));
+  for (const a of archs) {
+    const uses = src.split(a).length - 1;
+    t(`arch ${a} consumed by game.js (${uses} refs)`, uses >= 2);
+  }
+  // six signature weapons declared as a set
+  t(`six signature weapons`, /WEAPONS = \['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'\]/.test(src));
 }
 
 // lore: every memory is earned by a pure function over the lifetime ledger

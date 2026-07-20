@@ -24,6 +24,12 @@ const ARCH = {
   HALL: { name: 'long hall', inset: [3, 22], ci: 1 },
   GARDEN: { name: 'garden', inset: [8, 8], ci: 4, org: true },
   ROTUNDA: { name: 'rotunda', inset: [22, 6], ci: 5, round: true },
+  GROTTO: { name: 'grotto', inset: [30, 16], ci: 3, org: true, pool: true },
+  LABYRINTH: { name: 'labyrinth', inset: [6, 6], ci: 1 },
+  AQUEDUCT: { name: 'aqueduct', inset: [4, 10], ci: 6 },
+  BONEYARD: { name: 'boneyard', inset: [2, 4], ci: 0 },
+  OBSERVATORY: { name: 'observatory', inset: [12, 3], ci: 5, round: true },
+  THORNWOOD: { name: 'thornwood', inset: [6, 6], ci: 4, org: true, dim: 0.6 },
 };
 const ARCH_KEYS = Object.keys(ARCH);
 
@@ -112,7 +118,15 @@ const ITEMS = {
   key: { label: 'KEY', hint: 'opens the chest', ci: 5 },
   chalice: { label: 'CHALICE', hint: 'deliver it untouched', ci: 5 },
   bomb: { label: 'BOMB', hint: 'C throws. stand back.', ci: 7 },
+  // the six signature weapons — each a distinct feel (chosen in the armory at run start)
+  hammer: { label: 'HAMMER', hint: 'hold C: charge & SMASH', ci: 7, weapon: true, melee: true },
+  whip: { label: 'WHIP', hint: 'C: long, wild, no close', ci: 2, weapon: true, melee: true },
+  rapier: { label: 'RAPIER', hint: 'fast precise slash', ci: 3, weapon: true, melee: true },
+  boomerang: { label: 'BOOMERANG', hint: 'C: throws & returns', ci: 5, weapon: true },
+  flail: { label: 'FLAIL', hint: 'orbits you always', ci: 8, weapon: true, melee: true },
+  sporebow: { label: 'SPORE-BOW', hint: 'C: lob a vine burst', ci: 4, weapon: true },
 };
+const WEAPONS = ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'];
 
 // ---------- rng ----------
 function shuffle(arr, rng) {
@@ -237,6 +251,12 @@ const SPR = {
   chalice: ['# #', '###', ' # ', '###'],
   chest: ['#####', '#o$o#', '#####', ' ### '],
   bomb: [' + ', '###', '###'],
+  hammer: [' ###', ' ###', '  # ', '  # '],
+  whip: ['#   ', ' ## ', '   #', '  ##'],
+  rapier: ['   #', '  # ', ' #  ', '#   '],
+  boomerang: ['##  ', '  # ', '  # ', ' ## '],
+  flail: [' # ', '###', ' # '],
+  sporebow: [' ##', '#  ', '# #', ' ##'],
 };
 function blit(spr, x, y, ci, bright, flipX) {
   const h = spr.length;
@@ -309,7 +329,9 @@ function loadLedger() {
 }
 function saveLedger() { localStorage.setItem(LS_LEDGER, JSON.stringify(G.ledger)); }
 const G = {
-  state: localStorage.getItem(LS_SEEN) ? 'title' : 'intro', t: 0,
+  // a brand-new soul opens on the vine cutscene, then the story crawl
+  state: localStorage.getItem(LS_SEEN) ? 'title' : 'cinema', t: 0,
+  cineI: 0, cineT: 0, cineRet: 'intro-chain',
   favor: loadFavor(),
   ledger: loadLedger(),
   best: +(localStorage.getItem(LS_BEST) || 0),
@@ -421,15 +443,16 @@ function newRun() {
   // reset the run BEFORE reading boons: boon() consults G.run.floors, so the old run's
   // depth used to leak a phantom max-HP into the new one (refutation seat, 2026-07-20)
   G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0, bonus: 0, hotdogs: 0, chests: 0, chalices: 0, stolen: 0, tufts: 0, spent: 0, pieces: 0 };
-  const maxhp = 3 + (boon('umbra') ? FX.BOON_UMBRA : 0);
+  const maxhp = 4 + (boon('umbra') ? FX.BOON_UMBRA : 0);
   G.player = {
     x: 80, y: 47, hp: maxhp, maxhp,
     dir: { x: 1, y: 0 }, spdMult: 1, swords: 0,
     dashT: 0, dashCd: 0, dashHadDanger: false,
     atkT: 0, atkCd: 0, invulnT: 0,
     held: null, digestT: 0, ivx: 0, ivy: 0, chaliceClean: false,
+    chargeT: 0, orbitA: 0,
   };
-  G.pbolts = []; G.stars = []; G.bat = null;
+  G.pbolts = []; G.stars = []; G.bat = null; G.booms = []; G.patches = [];
   G.morsUsed = false;
   G.state = 'play';
   genFloor();
@@ -468,13 +491,22 @@ function genFloor() {
     if (!rooms.has(k)) {
       put(r.gx + dx, r.gy + dy);
       r.doors[d1] = true; rooms.get(k).doors[d2] = true;
-    } else if (rng() < 0.2) { // occasional loop
+    } else if (rng() < 0.28) { // occasional loop — the graph isn't a pure tree
       r.doors[d1] = true; rooms.get(k).doors[d2] = true;
+    }
+  }
+  // a couple of extra procedural edges: "this door goes somewhere different this run"
+  const roomArr = [...rooms.values()];
+  for (let extra = 0; extra < 2; extra++) {
+    const a2 = roomArr[(rng() * roomArr.length) | 0];
+    for (const [dx, dy, d1, d2] of dirs) {
+      const k = (a2.gx + dx) + ',' + (a2.gy + dy);
+      if (rooms.has(k) && !a2.doors[d1]) { a2.doors[d1] = true; rooms.get(k).doors[d2] = true; break; }
     }
   }
   // BFS farthest room = stairs
   const start = rooms.get('0,0');
-  start.type = 'start'; start.cleared = true; start.spawned = true;
+  start.type = G.depth === 1 ? 'armory' : 'start'; start.cleared = true; start.spawned = true;
   const dist = new Map([['0,0', 0]]);
   const q = ['0,0'];
   while (q.length) {
@@ -572,7 +604,7 @@ function enterRoom(room, fromDir) {
   G.cur = room;
   G.enemies = []; G.bolts = []; G.parts = G.parts || [];
   G.pickups = room.items || (room.items = []); // persistent: dropped items stay put
-  G.pbolts = []; G.stars = []; G.bombs = []; G.bat = null; G.hungry = null; G.pool = null; G.ordNext = 1;
+  G.pbolts = []; G.stars = []; G.bombs = []; G.booms = []; G.patches = []; G.bat = null; G.hungry = null; G.pool = null; G.ordNext = 1;
   G.doorOpenAt = 0;
   const woods = room.mut === 'WOODS'; // Lost Woods: no edge walls, the screen wraps
   // this room's architecture decides how big it is and what shape it takes
@@ -663,9 +695,40 @@ function enterRoom(room, fromDir) {
       const x = X0 + 6 + ((rng() * (X1 - X0 - 14)) | 0), y = Y0 + 4 + ((rng() * (Y1 - Y0 - 9)) | 0);
       for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 6; xx++) put(x + xx, y + yy);
     }
+  } else if (room.arch === 'LABYRINTH') {
+    // a maze of short offset walls you weave through
+    for (let gy = Y0 + 5; gy < Y1 - 4; gy += 5) {
+      let x = X0 + 4 + ((rng() * 8) | 0);
+      while (x < X1 - 4) {
+        const len = 4 + ((rng() * 7) | 0);
+        for (let k = 0; k < len; k++) put(x + k, gy);
+        x += len + 5 + ((rng() * 6) | 0);
+      }
+    }
+  } else if (room.arch === 'AQUEDUCT') {
+    // parallel channel walls with arch gaps
+    for (const gy of [cy - 8, cy + 8]) {
+      for (let x = X0 + 3; x < X1 - 3; x++) {
+        if ((x - X0) % 12 < 8) { put(x, gy); put(x, gy + 1); }
+      }
+    }
+  } else if (room.arch === 'BONEYARD') {
+    // scattered bone-pillar clusters, wide and sparse
+    for (let i = 0; i < 7; i++) {
+      const x = X0 + 6 + rng() * (X1 - X0 - 12), y = Y0 + 5 + rng() * (Y1 - Y0 - 10);
+      put(x, y); put(x + 1, y); put(x, y + 1); put(x - 1, y); put(x, y - 1);
+      if (rng() < 0.5) put(x + 1, y + 1);
+    }
+  } else if (room.arch === 'OBSERVATORY') {
+    // a wide dome: columns spiralling inward
+    for (let i = 0; i < 26; i++) {
+      const a = i * 0.62, r = 6 + i * 1.4;
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r * 0.62;
+      if (Math.hypot(x - 80, y - 47) > 8) { put(x, y); if (i % 2) put(x, y - 1); }
+    }
   } else {
-    // CAVE / GARDEN: organic blobs grown from a seed point (the vine logic, in rock)
-    const nb = 3 + ((rng() * 3) | 0);
+    // CAVE / GARDEN / GROTTO / THORNWOOD: organic blobs grown from a seed point (vine logic, in rock)
+    const nb = (room.arch === 'THORNWOOD' ? 5 : 3) + ((rng() * 3) | 0);
     for (let b = 0; b < nb; b++) {
       let bx = X0 + 10 + rng() * (X1 - X0 - 20), by = Y0 + 6 + rng() * (Y1 - Y0 - 12);
       const len = 14 + ((rng() * 22) | 0);
@@ -697,6 +760,15 @@ function enterRoom(room, fromDir) {
     spawnPickup(80, 47, ['heart', 'sword', 'boots'][(rng() * 3) | 0]);
   }
   room.entered = true;
+
+  // the armory: the six signature weapons on pedestals, pick one (one slot)
+  if (room.type === 'armory' && !room.armorySet) {
+    room.armorySet = true;
+    WEAPONS.forEach((w, i) => {
+      const a = i / WEAPONS.length * Math.PI * 2 - Math.PI / 2;
+      room.items.push({ x: 80 + Math.cos(a) * 22, y: 47 + Math.sin(a) * 15, kind: w, slot: true, ph: 0, ammo: w === 'sporebow' ? 8 : undefined, pedestal: true });
+    });
+  }
 
   // cuttable grass: every room grows a little; it does not grow back
   if (!room.tufts) {
@@ -889,9 +961,62 @@ function useItem() {
     G.floorStats.idleT += 4; // VELOX bills digestion as idling
     p.held = null;
     SFX.pickup();
+  } else if (k === 'whip') {
+    // long reach, WILD aim, useless up close (dead zone < 4)
+    const jitter = (Math.random() - 0.5) * 0.98; // ±28°
+    const base = Math.atan2(p.dir.y, p.dir.x) + jitter;
+    G.whipCrack = { a: base, t: 0.18, len: 13 };
+    let hit = false;
+    for (const e of G.enemies) {
+      if (e.telegraph > 0) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < 4 || d > 13) continue; // dead zone + max reach
+      const ea = Math.atan2(e.y - p.y, e.x - p.x);
+      if (Math.abs(angDiff(ea, base)) < 0.22) { e.hp -= 2; e.flash = 0.15; e.kx = (e.x - p.x) / d * 30; e.ky = (e.y - p.y) / d * 30; burst(e.x, e.y, e.ci, 6, 14, 0.3); hit = true; if (e.hp <= 0) killEnemy(e, 'melee'); }
+    }
+    G.shake = Math.max(G.shake, 1); tone(1400, 300, 0.07, 'sawtooth', 0.06);
+    if (hit) SFX.hit();
+  } else if (k === 'boomerang') {
+    if (G.booms.length) return; // one in flight
+    G.booms.push({ x: p.x, y: p.y, vx: p.dir.x * 30, vy: p.dir.y * 30, t: 0, back: false, hitCd: {} });
+    p.thrown = true;
+    tone(600, 900, 0.1, 'triangle', 0.06);
+  } else if (k === 'sporebow') {
+    p.held.ammo--;
+    const spd = 22;
+    G.booms.push({ spore: true, x: p.x, y: p.y, vx: p.dir.x * spd, vy: p.dir.y * spd, vz: 8, z: 0 });
+    tone(300, 500, 0.12, 'triangle', 0.05);
+    if (p.held.ammo <= 0) { p.held = null; msg('SPORE-BOW SPENT', 1, 1.2); }
+  } else if (k === 'hammer') {
+    // charge handled in updatePlay (hold); a tap just tells you how it works
+    if (!p.chargeHint) { p.chargeHint = true; msg('HOLD C TO CHARGE THE HAMMER', 7, 1.4); }
   } else {
     msg(ITEMS[k].label + ': ' + ITEMS[k].hint, ITEMS[k].ci, 1.2);
   }
+}
+
+// HAMMER: charged overhead smash — big arc, damage scales with charge, stuns
+function hammerSmash(charge) {
+  const p = G.player;
+  const dmg = 3 + Math.round(charge * 2); // 3..5
+  const reach = 7 + charge * 3;
+  const baseA = Math.atan2(p.dir.y, p.dir.x);
+  let hit = false;
+  for (const e of G.enemies) {
+    if (e.telegraph > 0) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+    if (d > reach) continue;
+    if ((dx * p.dir.x + dy * p.dir.y) / d < 0) continue; // front arc
+    e.hp -= dmg; e.flash = 0.2; e.state = 'recover'; e.st = 0.4; // stun
+    e.kx = dx / d * 70; e.ky = dy / d * 70;
+    burst(e.x, e.y, e.ci, 14, 24, 0.5); hit = true;
+    if (e.hp <= 0) killEnemy(e, 'melee');
+  }
+  G.smashFx = { x: p.x + p.dir.x * reach * 0.6, y: p.y + p.dir.y * reach * 0.6, r: reach, t: 0.25 };
+  G.shake = Math.max(G.shake, 3 + charge * 3); G.hitstop = Math.max(G.hitstop, 0.08);
+  A.startGlitch(0.5 + charge * 0.4, 0.25, 'pop');
+  tone(90, 40, 0.35, 'sawtooth', 0.16); tone(160, 30, 0.3, 'square', 0.1, 0.02);
+  if (hit) SFX.kill();
 }
 
 function hurtPlayer(from) {
@@ -901,8 +1026,12 @@ function hurtPlayer(from) {
   G.run.dmgTaken++; G.floorStats.dmgTaken++;
   p.invulnT = 1.0;
   p.chaliceClean = false; // the chalice felt that
-  G.shake = 3; G.flash = 0.18; G.hitstop = 0.09;
-  A.startGlitch(0.9, 0.3, 'chroma');
+  // an orb shatters: harder shake the lower you go, a burst of blue where it was
+  G.shake = 4 + (p.maxhp - p.hp); G.flash = 0.2; G.hitstop = 0.1;
+  const oa = p.hp / Math.max(1, p.maxhp) * Math.PI * 2 + G.t;
+  burst(p.x + Math.cos(oa) * 6, p.y + Math.sin(oa) * 4, 6, 20, 22, 0.6);
+  tone(300, 80, 0.2, 'sine', 0.12);
+  A.startGlitch(1.0, 0.35, 'chroma');
   const st = playerStats();
   const kb = Math.hypot(p.x - from.x, p.y - from.y) || 1;
   p.kx = (p.x - from.x) / kb * 30 * st.kb; p.ky = (p.y - from.y) / kb * 30 * st.kb;
@@ -951,7 +1080,9 @@ function die() {
 function slash() {
   const p = G.player, st = playerStats();
   if (p.atkCd > 0) return;
-  p.atkCd = 0.22; p.atkT = 0.13;
+  const rapier = heldKind() === 'rapier';
+  p.atkCd = rapier ? 0.10 : 0.22; p.atkT = rapier ? 0.09 : 0.13; // rapier: fast, precise
+  const reach = rapier ? 5 : SLASH_REACH;
   SFX.slash();
   let hitAny = false;
   // cuttable grass: the slash is never wasted
@@ -984,7 +1115,7 @@ function slash() {
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
-    if (d > SLASH_REACH) continue;
+    if (d > reach) continue;
     const dot = (dx * p.dir.x + dy * p.dir.y) / (d || 1);
     if (dot < 0.35) continue;
     if (losBlocked(p.x, p.y, e.x, e.y)) continue; // no killing through pillars
@@ -1151,6 +1282,67 @@ function updatePlay(dt) {
   if (p.digestT > 0) p.digestT -= dt;
 
   if (keys['x'] || keys[' ']) slash();
+
+  // ---- weapon feel: hammer charge, flail orbit, whip-crack decay ----
+  const heldK = heldKind();
+  // HAMMER: hold C to charge, release to smash
+  if (heldK === 'hammer') {
+    if (keys['c']) { p.chargeT = Math.min(1.2, p.chargeT + dt); p.charging = true; }
+    else if (p.charging) { hammerSmash(Math.min(1, p.chargeT / 1.2)); p.charging = false; p.chargeT = 0; }
+    if (p.charging) { vx *= 0.6; vy *= 0.6; if (Math.random() < p.chargeT * 0.3) G.shake = Math.max(G.shake, p.chargeT * 1.5); }
+  } else { p.charging = false; p.chargeT = 0; }
+  // FLAIL: a head orbits you, sweeping anything it passes
+  if (heldK === 'flail') {
+    p.orbitA += dt * 6.5;
+    const fx = p.x + Math.cos(p.orbitA) * 7, fy = p.y + Math.sin(p.orbitA) * 5;
+    p.flailPos = { x: fx, y: fy };
+    for (const e of G.enemies) {
+      if (e.telegraph > 0) continue;
+      e.flailCd = Math.max(0, (e.flailCd || 0) - dt);
+      if (e.flailCd <= 0 && Math.hypot(e.x - fx, e.y - fy) < e.r + 1.5) {
+        e.hp -= 2; e.flash = 0.15; e.flailCd = 0.25;
+        e.kx = (e.x - p.x) * 2.5; e.ky = (e.y - p.y) * 2.5;
+        burst(e.x, e.y, e.ci, 5, 12, 0.25); tone(700, 400, 0.05, 'square', 0.05);
+        if (e.hp <= 0) killEnemy(e, 'melee');
+      }
+    }
+  } else p.flailPos = null;
+  if (G.whipCrack) { G.whipCrack.t -= dt; if (G.whipCrack.t <= 0) G.whipCrack = null; }
+  if (G.smashFx) { G.smashFx.t -= dt; if (G.smashFx.t <= 0) G.smashFx = null; }
+
+  // boomerangs + spore lobs
+  for (const b of G.booms) {
+    if (b.spore) {
+      b.z += b.vz * dt; b.vz -= 26 * dt;
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.z <= 0 || solidAt(b.x, b.y)) { b.dead = true; G.patches.push({ x: b.x, y: b.y, r: 6, t: 2 }); tone(200, 120, 0.15, 'sawtooth', 0.06); burst(b.x, b.y, 4, 16, 12, 0.5); }
+      continue;
+    }
+    b.t += dt;
+    if (!b.back && b.t > 0.4) { b.back = true; }
+    if (b.back) { const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1; b.vx += dx / d * 120 * dt; b.vy += dy / d * 120 * dt; if (d < 3) { b.dead = true; p.thrown = false; } }
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (solidAt(b.x, b.y)) { b.vx *= -0.6; b.vy *= -0.6; b.back = true; }
+    for (const e of G.enemies) {
+      if (e.telegraph > 0) continue;
+      b.hitCd[e.__i = e.__i || Math.random()] = Math.max(0, (b.hitCd[e.__i] || 0) - dt);
+      if (b.hitCd[e.__i] <= 0 && Math.hypot(e.x - b.x, e.y - b.y) < e.r + 1) {
+        e.hp -= 2; e.flash = 0.15; b.hitCd[e.__i] = 0.3; burst(e.x, e.y, e.ci, 5, 12, 0.3);
+        if (e.hp <= 0) killEnemy(e, 'ranged');
+      }
+    }
+    if (b.t > 2.5) { b.dead = true; if (!b.spore) { G.pickups.push({ x: b.x, y: b.y, kind: 'boomerang', slot: true, ph: 0, cd: 0.4 }); p.thrown = false; } }
+  }
+  G.booms = G.booms.filter(b => !b.dead);
+  // spore vine-patches damage what stands in them
+  for (const pc of G.patches) {
+    pc.t -= dt;
+    for (const e of G.enemies) {
+      if (e.telegraph > 0) continue;
+      if (Math.hypot(e.x - pc.x, e.y - pc.y) < pc.r) { e.hp -= 3 * dt; if (e.hp <= 0) killEnemy(e, 'ranged'); }
+    }
+  }
+  G.patches = G.patches.filter(pc => pc.t > 0);
 
   // enemies
   for (const e of G.enemies) {
@@ -1558,7 +1750,7 @@ function beginJudgment() {
 function nextFloor() {
   G.depth++; G.run.floors = G.depth;
   const p = G.player;
-  p.maxhp = 3 + (boon('umbra') ? FX.BOON_UMBRA : 0);
+  p.maxhp = 4 + (boon('umbra') ? FX.BOON_UMBRA : 0);
   p.hp = Math.min(p.maxhp, p.hp + 1);
   // fall between floors: fake-3D character tunnel
   G.state = 'descend'; G.descT = 0;
@@ -1570,11 +1762,190 @@ function nextFloor() {
   A.startGlitch(0.7, 0.3, 'pop');
 }
 
+// ---------- the cutscene library: 12 watchable ASCII cinematics ----------
+// Each {title, dur, draw(t)} paints the scene canvas over t in [0,dur]; the vine is the
+// opener. Watch them all from the title via [V]. Progress persists (which you've seen).
+function loadCine() { try { return new Set(JSON.parse(localStorage.getItem('ducksouls_cine')) || []); } catch (e) { return new Set(); } }
+function saveCine() { localStorage.setItem('ducksouls_cine', JSON.stringify([...G.cineSeen])); }
+
+function cineVineDraw(t, withText) {
+  plasma(t * 0.06, 0.07, [4, 6, 1]);
+  const pts = 110, grown = Math.min(pts, t * 34);
+  for (let i = 0; i < 5; i++) px(80 + (i - 2) * 2, 83 + (i % 2), 1, 0.25);
+  for (let i = 0; i < grown; i++) {
+    const tt = i / pts, sway = Math.sin(G.t * 1.4 + tt * 6) * (tt * 1.6);
+    px(vineX(tt) + sway, vineY(tt), 4, 0.5 + 0.3 * Math.sin(i * 0.7));
+    if (i % 6 === 3) { const side = (i % 12 === 3) ? 1 : -1; for (let kk = 1; kk <= 2; kk++) px(vineX(tt) + sway + side * kk, vineY(tt), 4, 0.3); }
+  }
+  GROW_NODES.slice(0, 5).forEach((nd, i) => {
+    const ni = (0.12 + i * 0.17) * pts; if (grown < ni) return;
+    const tt = ni / pts, x = vineX(tt), side = i % 2 ? -1 : 1, bx = x + side * 8, y = vineY(tt);
+    const age = (grown - ni) / 30, r = Math.min(2.6, age * 5);
+    for (let q = 0; q < 6; q++) { const a = q / 6 * Math.PI * 2 + G.t * 0.6; px(bx + Math.cos(a) * r, y + Math.sin(a) * r * 0.8, [2, 8, 5][i % 3], 0.8); }
+    px(bx, y, 5, 1);
+    if (withText) A.text(side === 1 ? bx + 4 : bx - 4 - nd.phrase.length, y, nd.phrase, 4, 0.85 * Math.min(1, age));
+  });
+}
+
+const CUTSCENES = [
+  { title: 'THE FIRST GROWTH', dur: 7, draw: t => { cineVineDraw(t, true); A.textC(6, 'in the beginning, something grew', 4, 0.6); } },
+  {
+    title: 'THE DROWNING', dur: 7, draw: t => {
+      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
+      const fall = t * 12;
+      for (let i = 0; i < 120; i++) { const fx = (i * 37) % COLS, fy = ((i * 13 + fall) % (ROWS + 20)) - 10; px(fx, fy, 0, 0.4); }
+      const water = ROWS - 6 - Math.max(0, (5 - t)) * 8; // rising tide
+      for (let y = water; y < ROWS; y++) for (let x = 2; x < COLS - 2; x += 1) px(x, y, 6, 0.25 + 0.1 * Math.sin(x * 0.3 + G.t * 3));
+      bigText(80, 30, 'FEATHERS', 1, 0, Math.min(1, t));
+      A.textC(50, 'the kingdom drowned in feathers', 1, Math.min(1, t * 0.5));
+    }
+  },
+  {
+    title: 'THE FIVE REMAIN', dur: 8, draw: t => {
+      plasma(t * 0.1, 0.1, [6, 8, 1]);
+      P.GODS.forEach((g, i) => {
+        if (t < i * 1.2) return;
+        const x0 = 12 + i * 29, port = PORTRAIT[g.id], al = Math.min(1, (t - i * 1.2) * 2);
+        if (al < 1) for (let q = 0; q < 30; q++) px(x0 + Math.random() * 12, 30 + Math.random() * 8, g.ci, Math.random() * 0.5);
+        port.forEach((row, r) => A.text(x0, 28 + r, row, g.ci, al));
+        A.text(x0, 36, g.name, g.ci, al);
+      });
+      A.textC(6, 'five gods remained. they grade what they cannot rule.', 0, Math.min(1, t * 0.4));
+    }
+  },
+  {
+    title: 'THE SQUARE DESCENDS', dur: 7, draw: t => {
+      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
+      for (let i = 0; i < 120; i++) { const a = i * 0.7, d = ((i * 5 + t * 40) % 100); px(80 + Math.cos(a) * d, 45 + Math.sin(a) * d * 0.62, [3, 6, 8][i % 3], Math.min(1, d / 30)); }
+      const sq = 3 + Math.sin(t * 3) * 0.5;
+      rect(80 - sq / 2, 45 - sq / 2, sq, sq, 0, 1);
+      A.textC(60, 'a square descends. it is easier to judge.', 0, Math.min(1, t * 0.5));
+    }
+  },
+  {
+    title: 'DUCK INTO DRAGON', dur: 7, draw: t => {
+      plasma(t * 0.05, 0.06, [2, 7, 1]);
+      const morph = (Math.sin(t * 1.5) + 1) / 2;
+      const spr = morph > 0.5 ? SPR.duck[0] : ['  ####  ', ' #o###\\ ', '<#######', ' #######', ' ##  ## ', ' #    # '];
+      for (let s = 0; s < 6; s++) blit(spr, 76 + Math.sin(G.t + s) * (1 - morph) * 3, 40, morph > 0.5 ? 2 : 7, 1, false), s = 5;
+      A.textC(58, morph > 0.5 ? 'the ducks...' : '...remember being dragons', morph > 0.5 ? 2 : 7, 0.9);
+    }
+  },
+  {
+    title: "VELOX'S DOOR", dur: 7, draw: t => {
+      plasma(t * 0.04, 0.05, [3, 1]);
+      rect(88, 34, 10, 20, 1, 0.5); // a door
+      const px2 = 70 + Math.min(14, t * 4); // courier approaching, never arriving
+      rect(px2, 46, 3, 3, 3, 1);
+      if (t > 4) A.textC(62, 'he starved at a door that never opened', 3, Math.min(1, (t - 4)));
+      A.textC(8, 'VELOX, god of haste', 3, 0.7);
+    }
+  },
+  {
+    title: "PLUMA'S BROOD", dur: 7, draw: t => {
+      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
+      for (let i = 0; i < 8; i++) { if (t < i * 0.7) continue; const x = 20 + i * 15, hatch = Math.min(1, (t - i * 0.7)); if (hatch < 0.5) { A.text(x, 44, 'o', 5, 1); } else blit(SPR.duck[0], x - 4, 42, 2, hatch, false); }
+      A.textC(60, 'mother of every duck-dragon', 2, Math.min(1, t * 0.4));
+      A.textC(8, 'PLUMA, the duck-mother', 2, 0.7);
+    }
+  },
+  {
+    title: 'UMBRA UNTOUCHED', dur: 6, draw: t => {
+      plasma(t * 0.06, 0.06, [8, 6]);
+      const cx2 = 80, cy2 = 45;
+      for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2, r = 8 + Math.sin(G.t * 3 + i) * 2; px(cx2 + Math.cos(a) * r, cy2 + Math.sin(a) * r * 0.7, 8, 0.6); } // it recoils from everything
+      rect(cx2 - 1, cy2 - 1, 3, 3, 0, 1);
+      A.textC(60, 'never touched by anything. obsessed with your skin.', 8, Math.min(1, t * 0.5));
+      A.textC(8, 'UMBRA, keeper of the untouched', 8, 0.7);
+    }
+  },
+  {
+    title: "AURUM'S SALE", dur: 6, draw: t => {
+      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
+      for (let i = 0; i < 60; i++) { const fx = 20 + (i * 41) % 120, fy = 20 + ((i * 17 + t * 20) % 50); A.text(fx, fy, '$', 5, 0.7); }
+      bigText(80, 30, 'SOLD', 2, 5, Math.min(1, t * 0.6));
+      A.textC(58, 'sold his own temple. then the sixth god.', 5, Math.min(1, t * 0.4));
+      A.textC(8, 'AURUM, the hoarder', 5, 0.7);
+    }
+  },
+  {
+    title: 'MORS WAITS', dur: 8, draw: t => {
+      plasma(t * 0.03, 0.04, [1]);
+      for (let i = 0; i < Math.min(18, t * 3); i++) rect(14 + i * 7, 46, 2, 3, 1, 0.5); // the line of the dead
+      const port = PORTRAIT.mors; port.forEach((row, r) => A.text(130, 42 + r, row, 1, Math.min(1, t * 0.5)));
+      A.textC(62, 'death itself. it grades everyone, eventually.', 1, Math.min(1, t * 0.4));
+      if (t > 5) A.textC(66, '"back so soon?"', 1, Math.min(1, t - 5));
+    }
+  },
+  {
+    title: 'THE CHALICE', dur: 6, draw: t => {
+      plasma(t * 0.05, 0.05, [5, 8]);
+      blit(SPR.chalice, 78, 38, 5, 1, false);
+      const drain = Math.max(0, 1 - t / 5);
+      for (let y = 0; y < drain * 6; y++) px(80, 40 + y, 6, 0.6); // draining
+      A.textC(58, 'the chalice was full once. ask who drank.', 5, Math.min(1, t * 0.5));
+    }
+  },
+  {
+    title: 'THE RETURN', dur: 8, draw: t => {
+      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
+      if (t < 3) { bigText(80, 30, 'YOU', 2, 7, Math.min(1, t)); bigText(80, 42, 'DIED', 2, 7, Math.min(1, t - 0.5)); }
+      else if (t < 5.5) { cineVineDraw(t - 3, false); A.textC(40, 'the gods remember you', 4, Math.min(1, t - 3)); }
+      else { for (let i = 0; i < 80; i++) { const a = i * 0.7, d = ((i * 5 + t * 40) % 100); px(80 + Math.cos(a) * d, 45 + Math.sin(a) * d * 0.62, 3, Math.min(1, d / 30)); } A.textC(46, 'descend. be graded. return. again.', 5, Math.min(1, t - 5.5)); }
+    }
+  },
+];
+
+function playCine(i, ret) {
+  G.cineI = i; G.cineT = 0; G.cineRet = ret || 'gallery';
+  G.state = 'cinema';
+  G.cineSeen = G.cineSeen || loadCine(); G.cineSeen.add(i); saveCine();
+}
+
+function drawCinema(dt) {
+  G.cineT += dt;
+  const c = CUTSCENES[G.cineI];
+  c.draw(G.cineT);
+  A.textC(2, c.title, 0, 0.8);
+  if (G.cineT > c.dur) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- any key -', 5); }
+  else A.textC(86, 'any key skips', 1, 0.35);
+}
+
+function drawGallery(dt) {
+  plasma(G.t * 0.05, 0.08, [6, 8, 1]);
+  G.cineSeen = G.cineSeen || loadCine();
+  A.textC(6, 'THE CUTSCENE LIBRARY', 0);
+  A.textC(8, G.cineSeen.size + ' / 12 witnessed   -   number keys to watch, any other to leave', 1, 0.7);
+  CUTSCENES.forEach((c, i) => {
+    const col = i % 2, row = (i / 2) | 0;
+    const x = 20 + col * 62, y = 14 + row * 5;
+    const seen = G.cineSeen.has(i);
+    const label = (i + 1).toString().padStart(2, ' ') + '. ' + (seen ? c.title : '???  (unwatched)');
+    A.text(x, y, label, seen ? (i % 5) + 2 : 1, seen ? 0.9 : 0.4);
+  });
+  A.textC(80, 'the first plays automatically when a new soul begins', 4, 0.5);
+}
+
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
   if (k === 'c') { useItem(); return; }
   const mod = ['shift', 'meta', 'control', 'alt'].includes(k);
+  if (G.state === 'cinema') {
+    if (!mod && G.cineT > 0.4) {
+      if (G.cineRet === 'intro-chain') { G.state = 'intro'; G.introT = 0; }
+      else { G.state = G.cineRet || 'gallery'; if (G.state === 'gallery') G.galT = 0; }
+    }
+    return;
+  }
+  if (G.state === 'gallery') {
+    if (k >= '1' && k <= '9') { playCine(+k - 1, 'gallery'); return; }
+    if (k === '0') { playCine(9, 'gallery'); return; }
+    if (k === '-') { playCine(10, 'gallery'); return; }
+    if (k === '=') { playCine(11, 'gallery'); return; }
+    if (!mod) { G.state = 'title'; G.titleT = 0; }
+    return;
+  }
   if (G.state === 'intro') {
     if (!mod && G.introT > 0.6) {
       localStorage.setItem(LS_SEEN, '1');
@@ -1593,6 +1964,7 @@ function onKey(k) {
   if (G.state === 'title') {
     if (k === 'l') { G.state = 'lore'; G.loreT = 0; return; }
     if (k === 'h') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); return; }
+    if (k === 'v') { G.state = 'gallery'; G.galT = 0; return; }
     if (!mod) newRun();
     return;
   }
@@ -1759,6 +2131,13 @@ function drawWorld() {
       const a = Math.random() * Math.PI * 2;
       G.parts.push({ x: pk.x + Math.cos(a) * 3, y: pk.y + Math.sin(a) * 2.5, vx: 0, vy: -2, ci: 5, life: 0.4, t: 0 });
     }
+    // armory pedestals wear their name; the nearest one shows its hint
+    if (pk.pedestal) {
+      rect(pk.x - 2, pk.y + 2, 5, 1, 1, 0.4); // plinth
+      const near = Math.hypot(pk.x - p.x, pk.y - p.y) < 6;
+      A.text(pk.x - ITEMS[pk.kind].label.length / 2, pk.y - 4, ITEMS[pk.kind].label, ci, near ? 1 : 0.7);
+      if (near) A.text(pk.x - ITEMS[pk.kind].hint.length / 2, pk.y + 4, ITEMS[pk.kind].hint, 1, 0.8);
+    }
   }
   // enemies (in PITCH DARK, the unseen render as faint static — but telegraphs stay honest)
   for (const e of G.enemies) {
@@ -1841,6 +2220,47 @@ function drawWorld() {
     if (sp) { px(s2.x - 1, s2.y, 3, 1); px(s2.x + 1, s2.y, 3, 1); px(s2.x, s2.y, 0, 1); }
     else { px(s2.x, s2.y - 1, 3, 1); px(s2.x, s2.y + 1, 3, 1); px(s2.x, s2.y, 0, 1); }
   }
+  // ---- weapon animations ----
+  // boomerangs (spinning arc) + spore lobs (shadow + rising seed)
+  for (const b of G.booms) {
+    if (b.spore) {
+      px(b.x, b.y, 1, 0.3); // ground shadow
+      px(b.x, b.y - b.z, 4, 1); px(b.x, b.y - b.z - 1, 4, 0.5);
+    } else {
+      const sp = ((G.t * 20) | 0) % 4;
+      const g = ['/', '-', '\\', '|'][sp];
+      A.text(b.x, b.y, g, 5, 1);
+      px(b.x - b.vx * 0.02, b.y - b.vy * 0.02, 5, 0.4);
+    }
+  }
+  // spore vine-patches: a writhing bramble
+  for (const pc of G.patches) {
+    const a = Math.min(1, pc.t) * Math.min(1, (2 - pc.t) * 2);
+    for (let i = 0; i < 22; i++) {
+      const ang = i / 22 * Math.PI * 2 + G.t * 0.8, rr = pc.r * (0.4 + 0.5 * ((i * 7) % 10) / 10);
+      px(pc.x + Math.cos(ang) * rr, pc.y + Math.sin(ang) * rr * 0.7, 4, 0.5 * a * (0.5 + 0.5 * Math.sin(G.t * 4 + i)));
+    }
+  }
+  // whip crack: a snaking line unfurls to its target
+  if (G.whipCrack) {
+    const w = G.whipCrack, prog = 1 - w.t / 0.18;
+    for (let r = 1; r < w.len * prog; r += 0.8) {
+      const wob = Math.sin(r * 0.7 - G.t * 30) * (1 - r / w.len) * 1.5;
+      const ax = w.a + wob * 0.1;
+      px(p.x + Math.cos(ax) * r, p.y + Math.sin(ax) * r * 0.9, 2, (1 - prog) + 0.3);
+    }
+  }
+  // hammer smash shockwave
+  if (G.smashFx) {
+    const s = G.smashFx, k = 1 - s.t / 0.25;
+    for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; px(s.x + Math.cos(a) * s.r * k, s.y + Math.sin(a) * s.r * k * 0.8, 7, 1 - k); }
+  }
+  // flail head orbiting
+  if (p.flailPos) {
+    px(p.flailPos.x, p.flailPos.y, 8, 1); px(p.flailPos.x, p.flailPos.y - 1, 8, 0.7);
+    // chain
+    for (let s = 0.25; s < 1; s += 0.25) px(p.x + (p.flailPos.x - p.x) * s, p.y + (p.flailPos.y - p.y) * s, 1, 0.4);
+  }
   // player (breathing bob at rest, squash-stretch stepping when moving)
   const blink = p.invulnT > 0 && ((G.t * 12) | 0) % 2 === 0;
   if (!blink && G.state === 'play') {
@@ -1851,6 +2271,37 @@ function drawWorld() {
     else rect(p.x - 1, p.y - 1 + bobY, 3, 3, ci, 1);
     px(p.x + p.dir.x * 2, p.y + p.dir.y * 2 + bobY, ci, 0.8);
     if (p.digestT > 0 && Math.random() < 0.15) px(p.x + Math.random() * 3 - 1.5, p.y - 2.5, 2, 0.5); // hotdog steam
+    // hammer charging: a growing head over your shoulder + a charge bar
+    if (p.charging && p.chargeT > 0.05) {
+      const c = Math.min(1, p.chargeT / 1.2);
+      const hx = p.x - p.dir.x * 3, hy = p.y - p.dir.y * 3 - 2 - c * 3;
+      rect(hx - 1 - c, hy - 1 - c, 2 + c * 2, 2 + c * 2, 7, 0.8 + 0.2 * Math.sin(G.t * 30));
+      for (let i = 0; i < c * 10; i++) px(p.x + Math.random() * 6 - 3, p.y + Math.random() * 6 - 3, 7, Math.random() * c);
+      A.text(p.x - 2, p.y - 6, c >= 1 ? 'FULL' : '=' .repeat(Math.round(c * 4)), c >= 1 ? 5 : 7, 1);
+    }
+  }
+  // ---- health as blue orbs orbiting in fake-3D ----
+  // Each orb rides a tilted ring; sin(depth) scales its size and brightness so it reads as
+  // circling behind and in front of you. The last orb runs red and stutters (crisis).
+  if (G.state === 'play') {
+    const crisis = p.hp <= 1;
+    for (let i = 0; i < p.maxhp; i++) {
+      if (i >= p.hp) continue; // spent orbs are gone
+      const a = G.t * 2.2 + i / p.maxhp * Math.PI * 2;
+      const depth = Math.sin(a); // -1 behind, +1 front
+      const ox = p.x + Math.cos(a) * 7;
+      const oy = p.y + depth * 3.2 - 0.5; // vertical bob from the tilt
+      const sz = 0.6 + (depth + 1) * 0.5; // perspective size
+      const ci = crisis ? 7 : 6;
+      const jit = crisis ? (Math.random() - 0.5) * 1.2 : 0;
+      const al = (0.55 + (depth + 1) * 0.22) * (crisis ? 0.6 + 0.4 * Math.abs(Math.sin(G.t * 12)) : 1);
+      rect(ox - sz + jit, oy - sz * 0.7, sz * 2, sz * 1.4, ci, al);
+      px(ox + jit, oy - sz * 0.7, 0, al * 0.6); // glint
+      if (depth > 0.3 && Math.random() < 0.2) px(ox + Math.random() * 2 - 1, oy + 1, ci, 0.3); // trail
+    }
+    if (crisis && p.hp > 0) { // the world starts to fray at one orb
+      for (let i = 0; i < 40; i++) px(Math.random() * COLS, Math.random() * ROWS, 7, Math.random() * 0.12);
+    }
   }
   // slash arc with a lagging ghost trail
   if (p.atkT > 0) {
@@ -1893,11 +2344,12 @@ function drawWorld() {
 
 function drawHud() {
   const p = G.player, st = playerStats();
-  const hearts = '#'.repeat(p.hp) + '-'.repeat(Math.max(0, p.maxhp - p.hp));
+  // HUD orbs: filled blue O = full, spent = dim. Last one runs red and pulses.
+  let orbs = '';
+  for (let i = 0; i < p.maxhp; i++) orbs += i < p.hp ? 'O' : '.';
   A.text(2, 0, 'DUCK SOULS', 1);
   A.text(14, 0, 'FLOOR ' + G.depth, 5);
-  // at 1 HP the block pulses: hue alone is unreadable at 10px mid-fight
-  A.text(24, 0, 'HP [' + hearts + ']', p.hp <= 1 ? 7 : 0, p.hp <= 1 ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 10)) : 1);
+  A.text(24, 0, 'LIFE ' + orbs, p.hp <= 1 ? 7 : 6, p.hp <= 1 ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 10)) : 1);
   if (p.dashCd <= 0) A.text(38, 0, 'DASH READY', 3);
   else { // live cooldown bar
     const frac = Math.max(0, Math.min(1, 1 - p.dashCd / (st.dashCd + 0.13)));
@@ -2015,11 +2467,11 @@ function drawTitle() {
     A.textC(73, 'RUNS ' + led.runs + '   DEEPEST FLOOR ' + led.deepest + '   BEST ' + led.bestScore +
       (lr ? '   LAST: F' + lr.f + ' / ' + lr.k + ' KILLS / ' + lr.s : ''), 1, 0.75);
     const nLore = P.unlockedLore(led).length;
-    A.textC(75, '[L] MEMORIES (' + nLore + '/' + P.LORE.length + ')     [H] HOW A PLANT HEARS THE RULES', 8, 0.8);
+    A.textC(75, '[L] MEMORIES (' + nLore + '/' + P.LORE.length + ')   [H] THE RULES   [V] CUTSCENE LIBRARY', 8, 0.8);
     const latest = P.unlockedLore(led).slice(-1)[0];
     if (latest) typeText(79, '"' + latest.text + '"', 1, G.titleT - 1, 24, 0.6);
   } else {
-    A.textC(75, '[H] HOW A PLANT HEARS THE RULES', 4, 0.8);
+    A.textC(75, '[H] HOW A PLANT HEARS THE RULES     [V] CUTSCENE LIBRARY', 4, 0.8);
   }
   A.textC(86, 'BlueDuck LLC / the ducks are dragons / the dragons are ducks', 1, 0.4);
 }
@@ -2133,7 +2585,9 @@ function frame(now) {
   }
 
   A.beginFrame();
-  if (G.state === 'intro') drawIntro(dt);
+  if (G.state === 'cinema') drawCinema(dt);
+  else if (G.state === 'gallery') drawGallery(dt);
+  else if (G.state === 'intro') drawIntro(dt);
   else if (G.state === 'howto') drawHowto(dt);
   else if (G.state === 'lore') drawLore(dt);
   else if (G.state === 'title') drawTitle();

@@ -67,7 +67,7 @@ const has = re => re.test(SRC);
 
 // ---- F4: reward out-juices punishment ----
 {
-  const hurt = num(/G\.shake = 3; G\.flash = 0\.18; G\.hitstop = ([0-9.]+)/, 'hurt hitstop');
+  const hurt = num(/hurtPlayer[\s\S]{0,400}?G\.hitstop = ([0-9.]+)/, 'hurt hitstop');
   const killHs = SRC.match(/G\.hitstop = Math\.max\(G\.hitstop, ([0-9.]+)\)[^\n]*\n?[^\n]*SFX\.kill|SFX\.kill[\s\S]{0,200}?G\.hitstop = Math\.max\(G\.hitstop, ([0-9.]+)\)/);
   const killVal = killHs ? parseFloat(killHs[1] || killHs[2]) : 0;
   fun('F4', 'killing freezes the frame harder than being hit', killVal >= 0.10 && killVal > hurt * 0.9,

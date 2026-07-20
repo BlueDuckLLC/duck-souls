@@ -96,3 +96,27 @@ runs; so does the ledger.
 ## Run
 
 Static files, zero dependencies. `python3 -m http.server` and open `/`. Tests: `node test.js`.
+
+## Weapons, architecture, orbs, cutscenes (v5)
+
+**The armory.** Every run opens in a start-room ARMORY: six signature weapons on
+pedestals, pick ONE (the one-hands-slot Adventure law holds). HAMMER (hold C to charge, a
+growing head + rising shake, release for a stunning smash), WHIP (reach 13, wild ±28° aim,
+dead zone up close), RAPIER (fast/precise/short — no cooldown gap), BOOMERANG (arcs out and
+returns, hits both ways, catch to re-throw), FLAIL (a head orbits you, sweeping anything it
+passes), SPORE-BOW (lobs a seed that bursts into a damaging vine patch). All findable again
+on floors.
+
+**13 room architectures**, each a distinct size and shape, drawn through the ASCII filter
+and grown in from center on entry: cave, temple (Greek colonnade), crypt, cathedral, long
+hall, garden, rotunda, grotto, labyrinth, aqueduct, boneyard, observatory, thornwood.
+Floors are procedural — mutators and architecture drawn from shuffled bags, extra loop
+edges so the same rooms recombine differently every run.
+
+**Health is four blue orbs** orbiting you in fake-3D (they scale and brighten as they swing
+to the front). Lose one → screenshake scaling with how low you are + a blue shatter. At the
+last orb the screen frays with red static and the HUD orb pulses. All four gone: YOU DIED.
+
+**The cutscene library.** A brand-new soul opens on the vine cinematic ("THE FIRST
+GROWTH"). Twelve ASCII cutscenes tell the pantheon's story; watch them all from the title
+via [V] — unwatched ones stay hidden as "???" until witnessed.
