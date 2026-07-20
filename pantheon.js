@@ -153,8 +153,29 @@
     return `MORS: "Floor ${run.floors}. ${run.kills} souls ahead of you in line."`;
   }
 
+  // ---------- the story, told the Souls way: in fragments you earn ----------
+  // Every fragment unlocks via a pure function over the lifetime ledger.
+  const LORE = [
+    { id: 'feathers', when: l => l.deaths >= 1, text: 'First the ducks. Then the dragons. Then no one could tell the difference.' },
+    { id: 'square', when: l => l.runs >= 2, text: 'You are a square because the first shape is easiest to judge.' },
+    { id: 'line', when: l => l.deaths >= 3, text: 'The line moves. MORS keeps it. You have always been in it.' },
+    { id: 'twice', when: l => l.totalKills >= 25, text: 'PLUMA counts her children twice: once when they hatch, once when you come.' },
+    { id: 'drowned', when: l => l.deepest >= 3, text: 'Below the third floor: the kingdom that drowned in feathers.' },
+    { id: 'sixth', when: l => l.deepest >= 5, text: 'There were six gods. AURUM sold the sixth. That is why there are five.' },
+    { id: 'door', when: l => (l.floor1Deaths || 0) >= 3, text: 'VELOX starved at a door. You keep dying at one. He notices the resemblance.' },
+    { id: 'envy', when: l => l.bestScore >= 600, text: 'UMBRA envies you. To be touched at all -- even by teeth.' },
+    { id: 'hotdog', when: l => (l.totalHotdogs || 0) >= 1, text: 'The hotdog is older than the gods. Do not ask what is inside it.' },
+    { id: 'chest', when: l => (l.totalChests || 0) >= 1, text: 'The chest never wanted the key. It wanted company.' },
+    { id: 'chalice', when: l => (l.totalChalices || 0) >= 1, text: 'The chalice was full once. Ask VELOX why he runs. Ask MORS who drank.' },
+    { id: 'bat', when: l => (l.totalStolen || 0) >= 1, text: 'The bat serves no god. That is why it is free, and why it is hungry.' },
+  ];
+  function unlockedLore(l) {
+    return LORE.filter(f => { try { return !!f.when(l); } catch (e) { return false; } });
+  }
+
   return {
     GODS, judge, applyFavor, boonActive, curseActive, verdict, epitaph,
     defaultFavor, letter, DELTA, BOON_AT, CURSE_AT, START_FAVOR,
+    LORE, unlockedLore,
   };
 });

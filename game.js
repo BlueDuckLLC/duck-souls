@@ -227,18 +227,43 @@ const PORTRAIT = {
 };
 
 // ---------- game state ----------
-const LS_BEST = 'ducksouls_best', LS_FAVOR = 'ducksouls_favor';
+const LS_BEST = 'ducksouls_best', LS_FAVOR = 'ducksouls_favor', LS_LEDGER = 'ducksouls_ledger', LS_SEEN = 'ducksouls_seen';
 function loadFavor() {
   try { const f = JSON.parse(localStorage.getItem(LS_FAVOR)); if (f && f.velox !== undefined) return f; } catch (e) { }
   return P.defaultFavor();
 }
+function loadLedger() {
+  const d = { runs: 0, deaths: 0, totalKills: 0, deepest: 0, bestScore: 0, floor1Deaths: 0, totalHotdogs: 0, totalChests: 0, totalChalices: 0, totalStolen: 0, lastRuns: [] };
+  try { const l = JSON.parse(localStorage.getItem(LS_LEDGER)); if (l && l.runs !== undefined) return { ...d, ...l }; } catch (e) { }
+  return d;
+}
+function saveLedger() { localStorage.setItem(LS_LEDGER, JSON.stringify(G.ledger)); }
 const G = {
-  state: 'title', t: 0,
+  state: localStorage.getItem(LS_SEEN) ? 'title' : 'intro', t: 0,
   favor: loadFavor(),
+  ledger: loadLedger(),
   best: +(localStorage.getItem(LS_BEST) || 0),
   shake: 0, flash: 0, hitstop: 0,
   msgs: [],
 };
+
+// the story arrives like bad reception: cryptic, typed, glitching
+const INTRO_LINES = [
+  'THE KINGDOM DROWNED IN FEATHERS.',
+  'FIVE GODS REMAINED. THEY GRADE WHAT THEY CANNOT RULE.',
+  'A SQUARE DESCENDS. IT IS EASIER TO JUDGE.',
+  'THE DUCKS REMEMBER BEING DRAGONS.',
+  'DESCEND. BE GRADED. RETURN. AGAIN.',
+];
+// typewriter: centered on the FULL string so text never re-centers as it types
+function typeText(y, str, ci, elapsed, cps = 28, alpha = 1) {
+  const n = Math.max(0, Math.min(str.length, Math.floor(elapsed * cps)));
+  if (n <= 0) return false;
+  const x = Math.round((COLS - str.length) / 2);
+  A.text(x, y, str.slice(0, n), ci, alpha);
+  if (n < str.length && ((G.t * 16) | 0) % 2 === 0) A.text(x + n, y, '_', ci, alpha);
+  return n >= str.length;
+}
 window.__fps = 0;
 
 const boon = id => P.boonActive(G.favor, id);
@@ -259,9 +284,16 @@ function newRun() {
   };
   G.pbolts = []; G.stars = []; G.bat = null;
   G.morsUsed = false;
-  G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0 };
+  G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0, bonus: 0, hotdogs: 0, chests: 0, chalices: 0, stolen: 0 };
   G.state = 'play';
   genFloor();
+}
+
+// fold the floor's counters into the run's aggregates (called before the floor resets)
+function foldFloor() {
+  const f = G.floorStats, r = G.run;
+  r.hotdogs += f.hotdogsEaten; r.chests += f.chestsOpened;
+  r.chalices += f.chaliceDelivered; r.stolen += f.itemsStolen;
 }
 
 function floorStatsInit(roomCount) {
@@ -554,9 +586,28 @@ function hurtPlayer(from) {
 }
 
 function die() {
+  foldFloor();
   G.run.score = G.run.floors * 100 + G.run.kills * 10 + (G.run.bonus || 0);
   if (G.run.score > G.best) { G.best = G.run.score; localStorage.setItem(LS_BEST, G.best); }
   G.epitaph = P.epitaph({ ...G.run, score: G.run.score }, G.best);
+  // the ledger remembers; memories surface when they are earned
+  const led = G.ledger;
+  const before = new Set(P.unlockedLore(led).map(f => f.id));
+  led.runs++; led.deaths++;
+  led.totalKills += G.run.kills;
+  led.deepest = Math.max(led.deepest, G.run.floors);
+  led.bestScore = Math.max(led.bestScore, G.run.score);
+  if (G.run.floors <= 1) led.floor1Deaths++;
+  led.totalHotdogs += G.run.hotdogs; led.totalChests += G.run.chests;
+  led.totalChalices += G.run.chalices; led.totalStolen += G.run.stolen;
+  led.lastRuns.unshift({ f: G.run.floors, k: G.run.kills, s: G.run.score });
+  led.lastRuns.splice(5);
+  const after = P.unlockedLore(led);
+  const fresh = after.filter(f => !before.has(f.id));
+  G.whisperNew = fresh.length > 0;
+  G.whisper = fresh.length ? fresh[0].text
+    : after.length ? after[(Math.random() * after.length) | 0].text : '';
+  saveLedger();
   G.state = 'dead'; G.deadT = 0;
   G.shake = 6; G.flash = 0.6;
   burst(G.player.x, G.player.y, 7, 60, 30, 1.2);
@@ -892,6 +943,7 @@ function updatePlay(dt) {
 // ---------- judgment ----------
 function beginJudgment() {
   SFX.stairs();
+  foldFloor();
   const p = G.player;
   G.chaliceNote = null;
   if (heldKind() === 'chalice') {
@@ -933,11 +985,23 @@ function nextFloor() {
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
   if (k === 'c') { useItem(); return; }
-  if (G.state === 'title') { if (!['shift', 'meta', 'control', 'alt'].includes(k)) newRun(); return; }
+  const mod = ['shift', 'meta', 'control', 'alt'].includes(k);
+  if (G.state === 'intro' || G.state === 'lore') {
+    if (!mod && (G.state === 'lore' || G.introT > 0.6)) {
+      localStorage.setItem(LS_SEEN, '1');
+      G.state = 'title'; G.titleT = 0;
+    }
+    return;
+  }
+  if (G.state === 'title') {
+    if (k === 'l') { G.state = 'lore'; G.loreT = 0; return; }
+    if (!mod) newRun();
+    return;
+  }
   if (G.state === 'judgment' && G.judgeT > 0.8 && (k === ' ' || k === 'enter' || k === 'x')) { nextFloor(); return; }
   if (G.state === 'dead') {
     if (k === 'r') { newRun(); return; }
-    if (k === 'escape') { G.state = 'title'; return; }
+    if (!mod && G.deadT > 1.2) { G.state = 'title'; G.titleT = 0; return; } // return to the beginning
   }
   if (G.state === 'play' && k === 'escape') G.state = 'title';
 }
@@ -1161,6 +1225,41 @@ function drawHud() {
   G.msgs = G.msgs.filter(m => m.t > 0);
 }
 
+function drawIntro(dt) {
+  G.introT = (G.introT || 0) + dt;
+  plasma(G.t * 0.08, 0.1, [6, 8, 1]);
+  G.introGl = G.introGl || 0;
+  let done = 0;
+  INTRO_LINES.forEach((line, i) => {
+    const el = G.introT - i * 2.4;
+    if (el <= 0) return;
+    const finished = typeText(26 + i * 5, line, i === INTRO_LINES.length - 1 ? 5 : 0, el, 26, Math.min(1, el * 2));
+    if (finished) {
+      done++;
+      if (G.introGl < done) { G.introGl = done; A.startGlitch(0.6, 0.25); tone(70 + i * 12, 60, 0.5, 'sawtooth', 0.06); }
+    }
+  });
+  if (done === INTRO_LINES.length && ((G.t * 1.5) | 0) % 2 === 0) A.textC(60, '- ANY KEY: WAKE -', 5);
+  if (G.introT > 0.6) A.textC(84, 'any key skips', 1, 0.35);
+}
+
+function drawLore(dt) {
+  G.loreT = (G.loreT || 0) + dt;
+  plasma(G.t * 0.08, 0.1, [8, 6, 1]);
+  const unlocked = P.unlockedLore(G.ledger);
+  const ids = new Set(unlocked.map(f => f.id));
+  A.textC(8, 'M E M O R I E S', 0);
+  A.textC(11, unlocked.length + ' OF ' + P.LORE.length + ' SURFACED', 1, 0.7);
+  P.LORE.forEach((f, i) => {
+    const el = G.loreT - i * 0.25;
+    if (el <= 0) return;
+    const al = Math.min(1, el * 3);
+    if (ids.has(f.id)) typeText(16 + i * 4, f.text, i % 2 ? 3 : 0, el, 60, al);
+    else A.textC(16 + i * 4, '. . . ' + '. '.repeat(8) + '(not yet earned)', 1, al * 0.3);
+  });
+  if (((G.t * 1.5) | 0) % 2 === 0) A.textC(66, '- ANY KEY: BACK -', 5);
+}
+
 function drawTitle() {
   plasma(G.t * 0.7, 0.5, [6, 3, 8, 2]);
   bigText(80, 14, 'DUCK', 2, 5, 0.95, 1.1);
@@ -1183,7 +1282,18 @@ function drawTitle() {
   A.textC(64, 'ARROWS / WASD move   X or SPACE slash   Z or SHIFT dash   C use item   M mute', 0, 0.8);
   A.textC(66, 'every room may be WRONG: gravity, darkness, swarms, rubber, worse', 8, 0.6);
   if (((G.t * 1.5) | 0) % 2 === 0) A.textC(70, '- PRESS ANY KEY -', 5);
-  if (G.best > 0) A.textC(74, 'BEST ' + G.best, 1, 0.7);
+  // the ledger: what the beginning remembers about you
+  G.titleT = (G.titleT || 0) + 1 / 60;
+  const led = G.ledger;
+  if (led.runs > 0) {
+    const lr = led.lastRuns[0];
+    A.textC(73, 'RUNS ' + led.runs + '   DEEPEST FLOOR ' + led.deepest + '   BEST ' + led.bestScore +
+      (lr ? '   LAST: F' + lr.f + ' / ' + lr.k + ' KILLS / ' + lr.s : ''), 1, 0.75);
+    const nLore = P.unlockedLore(led).length;
+    A.textC(75, '[L] MEMORIES (' + nLore + '/' + P.LORE.length + ')', 8, 0.8);
+    const latest = P.unlockedLore(led).slice(-1)[0];
+    if (latest) typeText(79, '"' + latest.text + '"', 1, G.titleT - 1, 24, 0.6);
+  }
   A.textC(86, 'BlueDuck LLC / the ducks are dragons / the dragons are ducks', 1, 0.4);
 }
 
@@ -1247,14 +1357,22 @@ function drawDead(dt) {
   bigText(80, 18, 'YOU', 3, 7, Math.min(1, G.deadT * 2), 0.7);
   bigText(80, 36, 'DIED', 3, 7, Math.min(1, Math.max(0, G.deadT - 0.3) * 2), 0.7);
   if (G.deadT > 1) {
-    A.textC(56, G.epitaph, 1);
-    A.textC(59, 'FLOOR ' + G.run.floors + '   KILLS ' + G.run.kills + '   SCORE ' + G.run.score + '   BEST ' + G.best, 0);
-    let x = 40, y = 63;
+    A.textC(54, G.epitaph, 1);
+    const r = G.run;
+    const extras = [r.chests ? r.chests + ' CHEST' : '', r.chalices ? 'CHALICE' : '', r.hotdogs ? r.hotdogs + ' HOTDOG' : '', r.stolen ? r.stolen + ' STOLEN' : ''].filter(Boolean).join('   ');
+    A.textC(57, 'RUN ' + G.ledger.runs + ':  FLOOR ' + r.floors + '   KILLS ' + r.kills + '   SCORE ' + r.score + '   BEST ' + G.best, 0);
+    if (extras) A.textC(59, extras, 5, 0.8);
+    let x = 40, y = 62;
     for (const g of P.GODS) {
       A.text(x, y, g.glyph + ' ' + String(G.favor[g.id]).padStart(3), boon(g.id) ? g.ci : curse(g.id) ? 7 : 1);
       x += 16;
     }
-    if (((G.t * 1.5) | 0) % 2 === 0) A.textC(70, '- R: THE GODS REMEMBER YOU -', 5);
+    // a memory surfaces, typed like a bad signal
+    if (G.whisper) {
+      if (G.whisperNew) A.textC(66, '- A MEMORY SURFACES -', 8, 0.8);
+      typeText(68, '"' + G.whisper + '"', G.whisperNew ? 8 : 1, G.deadT - 1.5, 22, 0.85);
+    }
+    if (((G.t * 1.5) | 0) % 2 === 0) A.textC(74, '- R: DESCEND AGAIN  /  ANY KEY: RETURN TO THE BEGINNING -', 5);
   }
 }
 
@@ -1278,7 +1396,9 @@ function frame(now) {
   }
 
   A.beginFrame();
-  if (G.state === 'title') drawTitle();
+  if (G.state === 'intro') drawIntro(dt);
+  else if (G.state === 'lore') drawLore(dt);
+  else if (G.state === 'title') drawTitle();
   else if (G.state === 'judgment') drawJudgment(dt);
   else if (G.state === 'dead') { drawDead(dt); drawHud(); }
   else if (G.state === 'descend') {

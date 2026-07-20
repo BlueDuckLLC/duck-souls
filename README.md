@@ -60,6 +60,16 @@ red/green), VHS row shear, depth-pop zoom lunges, ramp scramble. Ambient on a ti
 harder when you're hit, when rooms clear, and when each god lands on the judgment board.
 Floors connect through a falling character tunnel.
 
+## You keep returning to the beginning
+
+Death sends you back to the shrine. The beginning keeps a ledger: runs, deaths, deepest
+floor, best score, your last runs — and MEMORIES ([L]): twelve cryptic fragments of the
+story, each earned by a pure function over your lifetime ledger (die once, open a chest,
+deliver the chalice, get robbed by the bat...). A new memory surfaces on the death screen,
+typed out like a bad signal. The story is told the Souls way: sideways, in fragments,
+never all at once. First visit opens with a five-line crawl. The gods remember you between
+runs; so does the ledger.
+
 ## Lineage
 
 - **Atari Adventure (1979)** — flip-screen rooms, a literal square for a hero, and dragons

@@ -111,6 +111,18 @@ for (const stats of [base, perfect, awful]) {
   }
 }
 
+// lore: every memory is earned by a pure function over the lifetime ledger
+{
+  const ids = new Set(P.LORE.map(f => f.id));
+  t('lore ids unique', ids.size === P.LORE.length);
+  t('lore texts present', P.LORE.every(f => typeof f.text === 'string' && f.text.length > 10));
+  const empty = { runs: 0, deaths: 0, totalKills: 0, deepest: 0, bestScore: 0, floor1Deaths: 0, totalHotdogs: 0, totalChests: 0, totalChalices: 0, totalStolen: 0 };
+  t('fresh ledger has no memories', P.unlockedLore(empty).length === 0);
+  const rich = { runs: 10, deaths: 10, totalKills: 100, deepest: 6, bestScore: 900, floor1Deaths: 4, totalHotdogs: 2, totalChests: 3, totalChalices: 1, totalStolen: 2 };
+  t('a full life surfaces every memory', P.unlockedLore(rich).length === P.LORE.length);
+  t('unlockedLore survives a broken ledger', Array.isArray(P.unlockedLore({})));
+}
+
 // epitaph always speaks
 {
   t('epitaph exists', P.epitaph({ floors: 3, kills: 9, dmgTaken: 2, score: 320 }, 500).length > 5);
