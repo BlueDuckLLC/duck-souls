@@ -29,11 +29,15 @@ const has = re => re.test(SRC);
     const contactHit = new Function('return ' + m[0])();
     const duck = { type: 'duck', r: 3.2 };
     // a point 3.0 cells to the side: inside the lunge ellipse, outside the walk-by one
+    // REVISED 2026-07-20 (round 2): the original clause required body-contact in 'seek'
+    // to hurt. Bot instrumentation then measured 0% of damage as telegraphed — that
+    // clause WAS the bug. A duck now damages only on the lunge it announced.
     const lunging = contactHit({ ...duck, state: 'lunge', x: 0, y: 0 }, 3.0, 0);
     const walking = contactHit({ ...duck, state: 'seek', x: 0, y: 0 }, 3.0, 0);
-    const touching = contactHit({ ...duck, state: 'seek', x: 0, y: 0 }, 1.5, 0);
-    gated = lunging && !walking && touching;
-    detail = `at 3.0 cells: lunge=${lunging} seek=${walking}; body-block at 1.5 still hits=${touching}`;
+    const nudging = contactHit({ ...duck, state: 'seek', x: 0, y: 0 }, 1.5, 0);
+    const recovering = contactHit({ ...duck, state: 'recover', x: 0, y: 0 }, 2.0, 0);
+    gated = lunging && !walking && !nudging && !recovering;
+    detail = `lunge@3.0=${lunging}; seek@3.0=${walking}, seek@1.5=${nudging}, recover@2.0=${recovering} (only the announced lunge costs HP)`;
   }
   fun('F1', 'deaths come from the lunge, not a shoulder-brush', gated, detail);
 }

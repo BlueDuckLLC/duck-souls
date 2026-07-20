@@ -3,7 +3,7 @@
     "id": "F1",
     "claim": "deaths come from the lunge, not a shoulder-brush",
     "pass": true,
-    "detail": "at 3.0 cells: lunge=true seek=false; body-block at 1.5 still hits=true"
+    "detail": "lunge@3.0=true; seek@3.0=false, seek@1.5=false, recover@2.0=false (only the announced lunge costs HP)"
   },
   {
     "id": "F2a",

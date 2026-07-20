@@ -8,9 +8,24 @@ const A = new Asciifier(document.getElementById('screen'), COLS, ROWS, CELL);
 const S = A.sctx;
 const P = window.Pantheon;
 
-// arena bounds (rows 0-3 reserved for HUD)
-const X0 = 1, X1 = COLS - 2, Y0 = 5, Y1 = ROWS - 2;
+// arena bounds — now PER ROOM (rows 0-3 reserved for HUD). enterRoom() sets these from
+// the room's architecture, so a crypt is genuinely smaller than a cathedral.
+let X0 = 1, X1 = COLS - 2, Y0 = 5, Y1 = ROWS - 2;
 const DOOR = 7; // door gap size
+
+// ---- ARCHITECTURE: rooms have shapes and sizes, not just contents ----
+// Each entry gives an inset (how much smaller than the full arena) and a wall-builder
+// that decorates the interior. Drawn through the ASCII filter like everything else.
+const ARCH = {
+  CAVE: { name: 'cave', inset: [2, 4], ci: 1, org: true },
+  TEMPLE: { name: 'temple', inset: [10, 6], ci: 0 },
+  CRYPT: { name: 'crypt', inset: [26, 14], ci: 8 },
+  CATHEDRAL: { name: 'cathedral', inset: [34, 3], ci: 6 },
+  HALL: { name: 'long hall', inset: [3, 22], ci: 1 },
+  GARDEN: { name: 'garden', inset: [8, 8], ci: 4, org: true },
+  ROTUNDA: { name: 'rotunda', inset: [22, 6], ci: 5, round: true },
+};
+const ARCH_KEYS = Object.keys(ARCH);
 
 // ---------- named effect magnitudes (every key here is a real, applied effect;
 // test.js verifies each boon/curse key is consumed below) ----------
@@ -62,10 +77,12 @@ const LUNGE_MULT = 3.0, LUNGE_TIME = 0.22; // travel ~4.0 cells at depth 1 (was 
 // contact damage is state-aware: the lunge is what kills you, a shoulder-brush grazes
 function contactHit(e, px2, py2) {
   const dx = px2 - e.x, dy = py2 - e.y;
-  const full = e.type !== 'duck' || e.state === 'lunge';
-  if (e.type === 'duck') { // ellipse matching the 8x6 sprite, shrunk outside the lunge
-    const sx = full ? 4.2 : 2.4, sy = full ? 3.2 : 1.9;
-    return (dx * dx) / (sx * sx) + (dy * dy) / (sy * sy) < 1;
+  if (e.type === 'duck') {
+    // A duck only DAMAGES you on the lunge it telegraphed. Walking into one shoves you
+    // (separation handles that) but never costs HP — otherwise the windup is theatre and
+    // deaths read as random. Measured: 0% of damage was telegraphed before this.
+    if (e.state !== 'lunge') return false;
+    return (dx * dx) / (4.2 * 4.2) + (dy * dy) / (3.2 * 3.2) < 1;
   }
   return Math.hypot(dx, dy) < e.r + 1.4;
 }
@@ -98,6 +115,11 @@ const ITEMS = {
 };
 
 // ---------- rng ----------
+function shuffle(arr, rng) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
 function mulberry32(a) {
   return function () {
     a |= 0; a = a + 0x6D2B79F5 | 0;
@@ -320,6 +342,10 @@ const GROW_NODES = [
   { phrase: 'every rose grows one thorn', key: 'X or SPACE  --  slash' },
   { phrase: 'be seed. be elsewhere.', key: 'Z or SHIFT  --  dash, untouchable' },
   { phrase: 'swallow the rain when it comes', key: 'C  --  use what you hold' },
+  { phrase: 'a walled garden opens only when tended', key: 'doors bar until the room is clear' },
+  { phrase: 'roots seek the deep dark', key: 'find the stairs >  — descend' },
+  { phrase: 'one pot. one plant. choose.', key: 'touching a tool SWAPS what you hold' },
+  { phrase: 'winter does not restore what summer spent', key: 'descending does NOT heal you' },
   { phrase: 'endure winter. rise again.', key: 'M mute    R restart    L memories' },
 ];
 const vineX = t => 80 + Math.sin(t * 5.2) * 10 + Math.sin(t * 11) * 3;
@@ -330,7 +356,7 @@ function drawHowto(dt) {
   A.textC(6, 'HOW A PLANT HEARS THE RULES', 4);
   A.textC(8, 'the same rules. slower. greener.', 1, 0.5);
   const pts = 110;
-  const grown = Math.min(pts, G.howT * 30);
+  const grown = Math.min(pts, G.howT * 42);
   // roots first: a seed remembers downward
   for (let i = 0; i < 5; i++) px(80 + (i - 2) * 2, 83 + (i % 2), 1, 0.25 * Math.min(1, G.howT * 2));
   for (let i = 0; i < grown; i++) {
@@ -346,7 +372,7 @@ function drawHowto(dt) {
     }
   }
   GROW_NODES.forEach((nd, i) => {
-    const ni = (0.14 + i * 0.19) * pts; // stem index where this one blooms
+    const ni = (0.10 + i * 0.098) * pts; // stem index where this one blooms
     if (grown < ni) { nd.bloomed = false; return; }
     const t = ni / pts;
     const x = vineX(t), y = vineY(t);
@@ -471,11 +497,22 @@ function genFloor() {
     t.type = 'treasure'; t.cleared = true; t.spawned = true;
   }
   // room heuristics + persistent per-room item lists
-  const mutKeys = Object.keys(MUT);
+  // Mutators are drawn from a shuffled BAG without replacement, so a run can't hide
+  // THE TOLL behind bad luck and can't show you RUBBER four times before FOUNTAIN once.
+  if (!G.mutBag || !G.mutBag.length) G.mutBag = shuffle(Object.keys(MUT), rng);
+  // Architecture is also bagged: every floor feels like a different building.
+  if (!G.archBag || !G.archBag.length) G.archBag = shuffle(ARCH_KEYS, rng);
   for (const r of rooms.values()) {
     r.items = [];
-    r.mut = (r.type === 'fight' || r.type === 'stairs') && rng() < 0.55
-      ? mutKeys[(rng() * mutKeys.length) | 0] : null;
+    r.arch = G.archBag.length ? G.archBag.pop() : ARCH_KEYS[(rng() * ARCH_KEYS.length) | 0];
+    if (!G.archBag.length) G.archBag = shuffle(ARCH_KEYS, rng);
+    r.mut = (r.type === 'fight' || r.type === 'stairs') && rng() < 0.65 ? G.mutBag.pop() : null;
+    if (!G.mutBag.length) G.mutBag = shuffle(Object.keys(MUT), rng);
+  }
+  // every floor is guaranteed one room that asks a question, not just a fight
+  const eligible = [...rooms.values()].filter(r => r.type === 'fight');
+  if (eligible.length && !eligible.some(r => ['TOLL', 'FOUNTAIN', 'HUNGRY', 'ORDER'].includes(r.mut))) {
+    eligible[(rng() * eligible.length) | 0].mut = ['TOLL', 'FOUNTAIN', 'HUNGRY', 'ORDER'][(rng() * 4) | 0];
   }
   // guarantee a hot fight room adjacent to the start: the game opens in combat
   const startAdj = [...rooms.values()].filter(r => (dist.get(r.gx + ',' + r.gy) || 99) === 1);
@@ -486,9 +523,14 @@ function genFloor() {
     if (pick.mut === 'TOLL') pick.mut = null;
   }
   // challenge objects: key + chest pair from depth 2 (cross-room carrying), one tool, rare chalice
-  const spot = r => [X0 + 10 + rng() * (X1 - X0 - 20), Y0 + 8 + rng() * (Y1 - Y0 - 16)];
+  // spawn points must respect the TARGET room's own architecture, not the current bounds
+  const spot = r => {
+    const [ix2, iy2] = (ARCH[r.arch] || ARCH.CAVE).inset;
+    const rx0 = 1 + ix2, rx1 = COLS - 2 - ix2, ry0 = 5 + iy2, ry1 = ROWS - 2 - iy2;
+    return [rx0 + 8 + rng() * Math.max(4, rx1 - rx0 - 16), ry0 + 6 + rng() * Math.max(4, ry1 - ry0 - 12)];
+  };
   const fights = [...rooms.values()].filter(r => r.type === 'fight');
-  if (G.depth >= 2 && fights.length >= 2) {
+  if (fights.length >= 2) { // key+chest from floor 1: the reward loop starts immediately
     const ka = fights[(rng() * fights.length) | 0];
     let cb = fights[(rng() * fights.length) | 0];
     if (cb === ka) cb = fights[(fights.indexOf(ka) + 1) % fights.length];
@@ -499,8 +541,15 @@ function genFloor() {
   }
   const toolRoom = [...rooms.values()][(rng() * rooms.size) | 0];
   const [tx, ty] = spot(toolRoom);
-  const toolKind = ['gun', 'star', 'hotdog', 'lantern', 'bomb'][(rng() * 5) | 0];
-  toolRoom.items.push({ x: tx, y: ty, kind: toolKind, slot: true, ph: 0, ammo: toolKind === 'bomb' ? 3 : 6 });
+  // TWO tools per floor: with one hands slot, the second one is a real decision
+  const toolBag = shuffle(['gun', 'star', 'hotdog', 'lantern', 'bomb'], rng);
+  const allRooms = [...rooms.values()];
+  for (let i = 0; i < 2; i++) {
+    const rm = i === 0 ? toolRoom : allRooms[(rng() * allRooms.length) | 0];
+    const [sx2, sy2] = spot(rm);
+    const kind = toolBag[i];
+    rm.items.push({ x: sx2, y: sy2, kind, slot: true, ph: 0, ammo: kind === 'bomb' ? 3 : 6 });
+  }
   if (G.depth % 3 === 0) {
     const cr = fights.length ? fights[(rng() * fights.length) | 0] : start;
     const [gx, gy] = spot(cr);
@@ -526,6 +575,23 @@ function enterRoom(room, fromDir) {
   G.pbolts = []; G.stars = []; G.bombs = []; G.bat = null; G.hungry = null; G.pool = null; G.ordNext = 1;
   G.doorOpenAt = 0;
   const woods = room.mut === 'WOODS'; // Lost Woods: no edge walls, the screen wraps
+  // this room's architecture decides how big it is and what shape it takes
+  const arch = ARCH[room.arch] || ARCH.CAVE;
+  const [ix, iy] = arch.inset;
+  X0 = 1 + ix; X1 = COLS - 2 - ix; Y0 = 5 + iy; Y1 = ROWS - 2 - iy;
+  G.arch = arch;
+  G.growT = 0; // walls grow in like the tutorial vine
+  // Place the player relative to THIS room's bounds — rooms differ in size now, so a
+  // position computed from the previous room can land outside the new walls.
+  if (fromDir) {
+    const p0 = G.player;
+    if (fromDir === 'n') { p0.y = Y1 - 5; p0.x = (X0 + X1) / 2; }
+    if (fromDir === 's') { p0.y = Y0 + 5; p0.x = (X0 + X1) / 2; }
+    if (fromDir === 'w') { p0.x = X1 - 5; p0.y = (Y0 + Y1) / 2; }
+    if (fromDir === 'e') { p0.x = X0 + 5; p0.y = (Y0 + Y1) / 2; }
+  } else {
+    G.player.x = (X0 + X1) / 2; G.player.y = (Y0 + Y1) / 2;
+  }
   const rng = mulberry32(room.seed);
   // walls + pillars
   const solid = new Uint8Array(COLS * ROWS);
@@ -554,15 +620,64 @@ function enterRoom(room, fromDir) {
     if (room.doors.w && doorAt('w', y)) bars.push([X0, y]);
     if (room.doors.e && doorAt('e', y)) bars.push([X1, y]);
   }
-  const pillars = [];
-  const np = 2 + ((rng() * 3) | 0);
-  for (let i = 0; i < np; i++) {
-    const w = 3 + ((rng() * 4) | 0), h = 2 + ((rng() * 3) | 0);
-    const x = X0 + 12 + ((rng() * (X1 - X0 - 24 - w)) | 0);
-    const y = Y0 + 8 + ((rng() * (Y1 - Y0 - 16 - h)) | 0);
-    if (Math.abs(x - 80) < 8 && Math.abs(y - 47) < 6) continue;
-    pillars.push([x, y, w, h]);
-    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) { solid[yy * COLS + xx] = 1; walls.push([xx, yy]); }
+  // interior architecture: each room type builds its own furniture
+  const put = (x, y) => {
+    x |= 0; y |= 0;
+    if (x <= X0 || x >= X1 || y <= Y0 || y >= Y1) return;
+    if (Math.abs(x - 80) < 7 && Math.abs(y - 47) < 5) return; // never wall in the entry
+    if (solid[y * COLS + x]) return;
+    solid[y * COLS + x] = 1; walls.push([x, y]);
+  };
+  const cx = (X0 + X1) / 2, cy = (Y0 + Y1) / 2;
+  if (room.arch === 'TEMPLE') {
+    // Greek colonnade: two rows of fluted columns with capitals
+    for (const row of [Y0 + 7, Y1 - 9]) {
+      for (let c = 0; c < 6; c++) {
+        const x = X0 + 8 + c * ((X1 - X0 - 16) / 5);
+        for (let h = 0; h < 6; h++) { put(x, row + h); put(x + 1, row + h); }
+        for (let k = -2; k <= 3; k++) { put(x + k, row - 1); put(x + k, row + 6); } // capital + base
+      }
+    }
+  } else if (room.arch === 'ROTUNDA') {
+    // a ring of columns around an open center
+    for (let i = 0; i < 14; i++) {
+      const a = i / 14 * Math.PI * 2;
+      const rx = cx + Math.cos(a) * (X1 - X0) * 0.34, ry = cy + Math.sin(a) * (Y1 - Y0) * 0.34;
+      for (let h = 0; h < 3; h++) { put(rx, ry + h - 1); put(rx + 1, ry + h - 1); }
+    }
+  } else if (room.arch === 'CATHEDRAL') {
+    // tall narrow nave: buttresses down both long walls
+    for (let y = Y0 + 6; y < Y1 - 4; y += 7) {
+      for (let k = 0; k < 5; k++) { put(X0 + 2 + k, y); put(X1 - 2 - k, y); }
+    }
+  } else if (room.arch === 'HALL') {
+    // a long hall wants obstacles you weave through, not blobs
+    for (let c = 0; c < 5; c++) {
+      const x = X0 + 14 + c * ((X1 - X0 - 28) / 4);
+      const up = c % 2 === 0;
+      for (let h = 0; h < 5; h++) put(x, up ? Y0 + 2 + h : Y1 - 2 - h);
+    }
+  } else if (room.arch === 'CRYPT') {
+    // tight room, a few sarcophagi
+    for (let i = 0; i < 3; i++) {
+      const x = X0 + 6 + ((rng() * (X1 - X0 - 14)) | 0), y = Y0 + 4 + ((rng() * (Y1 - Y0 - 9)) | 0);
+      for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 6; xx++) put(x + xx, y + yy);
+    }
+  } else {
+    // CAVE / GARDEN: organic blobs grown from a seed point (the vine logic, in rock)
+    const nb = 3 + ((rng() * 3) | 0);
+    for (let b = 0; b < nb; b++) {
+      let bx = X0 + 10 + rng() * (X1 - X0 - 20), by = Y0 + 6 + rng() * (Y1 - Y0 - 12);
+      const len = 14 + ((rng() * 22) | 0);
+      let ang = rng() * Math.PI * 2;
+      for (let s = 0; s < len; s++) {
+        ang += (rng() - 0.5) * 0.9;
+        bx += Math.cos(ang) * 1.6; by += Math.sin(ang) * 1.1;
+        put(bx, by);
+        if (rng() < 0.5) put(bx + 1, by);
+        if (rng() < 0.3) put(bx, by + 1);
+      }
+    }
   }
   // floor speckle
   const speckles = [];
@@ -629,6 +744,20 @@ function enterRoom(room, fromDir) {
     const dirs2 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     G.windDir = dirs2[room.seed % 4];
   }
+  // living vines for organic rooms (cave/garden) — same growth grammar as the tutorial
+  G.vines = [];
+  if (arch.org) {
+    const nv = arch.name === 'garden' ? 14 : 6;
+    for (let i = 0; i < nv; i++) {
+      const side = rng() < 0.5;
+      G.vines.push({
+        x: X0 + 3 + rng() * (X1 - X0 - 6),
+        y: side ? Y1 - 1 : Y0 + 1 + (Y1 - Y0) * 0.55,
+        h: (side ? 1 : -1) * (6 + rng() * 14), len: 18, ph: rng() * 6,
+        bloom: rng() < 0.4,
+      });
+    }
+  }
   G.motes = [];
   for (let i = 0; i < 42; i++) {
     G.motes.push({
@@ -641,6 +770,7 @@ function enterRoom(room, fromDir) {
     G.bat = { x: rng() < 0.5 ? X0 + 2 : X1 - 2, y: Y0 + 6 + rng() * 20, ph: rng() * 6, carrying: null, hp: 1, leaveT: 9 };
   }
   // announce the room's wrongness
+  if (!room.archSeen) { room.archSeen = true; msg('- ' + arch.name + ' -', arch.ci, 1.4); }
   if (room.mut && !room.mutSeen) {
     room.mutSeen = true;
     msg('THE ROOM IS WRONG: ' + MUT[room.mut].name, MUT[room.mut].ci, 2.6);
@@ -1388,11 +1518,7 @@ function updatePlay(dt) {
   if (moved) {
     const [dir, dx, dy] = moved;
     const next = G.rooms.get((G.cur.gx + dx) + ',' + (G.cur.gy + dy));
-    if (next) {
-      if (dir === 'n') p.y = Y1 - 5; if (dir === 's') p.y = Y0 + 5;
-      if (dir === 'w') p.x = X1 - 5; if (dir === 'e') p.x = X0 + 5;
-      enterRoom(next, dir);
-    }
+    if (next) enterRoom(next, dir); // enterRoom repositions using the new room's bounds
   }
   }
 
@@ -1525,7 +1651,38 @@ function drawWorld() {
   };
   G.lightAt = lightAt;
   for (const [x, y, b] of G.speckles) px(x, y, 1, b * lightAt(x, y));
-  for (const [x, y] of G.walls) px(x, y, 1, (0.28 + 0.5 * lightAt(x, y)) * (mut('DARK') ? Math.max(0.25, lightAt(x, y) * 2) : 1));
+  // the room GROWS in when you enter — walls unfurl outward from the center like the vine
+  G.growT = Math.min(1.6, (G.growT || 0) + 1 / 60);
+  const grow = Math.min(1, G.growT / 0.7);
+  const archCi = (G.arch && G.arch.ci) || 1;
+  for (const [x, y] of G.walls) {
+    const d = Math.hypot(x - 80, y - 47) / 90;
+    const k = Math.min(1, Math.max(0, (grow - d * 0.55) * 2.2));
+    if (k <= 0) continue;
+    const lit = (0.28 + 0.5 * lightAt(x, y)) * (mut('DARK') ? Math.max(0.25, lightAt(x, y) * 2) : 1);
+    px(x, y, archCi, lit * k);
+    if (k < 1 && Math.random() < 0.25) px(x, y - 1, archCi, 0.4 * k); // growth sparkle
+  }
+  // GARDEN/CAVE rooms breathe: living vines sway on the walls, tutorial-style
+  if (G.arch && G.arch.org && G.vines) {
+    for (const v of G.vines) {
+      for (let s = 0; s < v.len; s++) {
+        const t = s / v.len;
+        const sway = Math.sin(G.t * 1.3 + t * 5 + v.ph) * (t * 2.2);
+        const vx = v.x + sway, vy = v.y - t * v.h;
+        px(vx, vy, 4, (0.35 - t * 0.15) * grow * Math.max(0.35, lightAt(vx, vy) * 1.5));
+        if (s % 5 === 2) px(vx + (s % 10 < 5 ? 1 : -1), vy, 4, 0.25 * grow); // leaves
+      }
+      if (v.bloom) px(v.x + Math.sin(G.t * 1.3 + 5 + v.ph) * 2.2, v.y - v.h, 8, 0.55 + 0.25 * Math.sin(G.t * 2));
+    }
+  }
+  // temple/rotunda columns catch the light along their capitals
+  if (G.arch && (G.arch.name === 'temple' || G.arch.name === 'rotunda')) {
+    for (let i = 0; i < 26; i++) {
+      const gx2 = X0 + 2 + ((i * 37) % (X1 - X0 - 4));
+      px(gx2, Y0 + 1, 5, (0.12 + 0.08 * Math.sin(G.t + i)) * grow);
+    }
+  }
   // dust motes drift (and show the wind under SIDEWAYS GRAVITY)
   for (const m of G.motes) {
     if (G.windDir) { m.vx += (G.windDir[0] * 9 - m.vx) * 0.06; m.vy += (G.windDir[1] * 9 - m.vy) * 0.06; }
@@ -1937,6 +2094,16 @@ function drawDead(dt) {
       A.text(x, y, g.glyph + ' ' + String(G.favor[g.id]).padStart(3), boon(g.id) ? g.ci : curse(g.id) ? 7 : 1);
       x += 16;
     }
+    // what you're closer to than you were — the reason to press R
+    const led = G.ledger;
+    const unlocked = P.unlockedLore(led).length;
+    const goals = [
+      led.deepest < 3 ? 'DEEPEST ' + led.deepest + '/3 — one more floor unlocks the gods\' boons' : null,
+      (led.totalChests || 0) < 1 ? 'NO CHEST OPENED YET — the key is always on the floor' : null,
+      (led.totalPieces || 0) % 4 !== 0 || !led.totalPieces ? 'HEART PIECES ' + ((led.totalPieces || 0) % 4) + '/4 — four make a heart' : null,
+      led.deepest < 5 ? 'DEEPEST ' + led.deepest + '/5 — the sixth god is buried deeper' : null,
+    ].filter(Boolean);
+    A.textC(64, 'MEMORIES ' + unlocked + '/' + P.LORE.length + '   ' + (goals[0] || 'THE PANTHEON IS WATCHING'), 8, 0.9);
     // a memory surfaces, typed like a bad signal
     if (G.whisper) {
       if (G.whisperNew) A.textC(66, '- A MEMORY SURFACES -', 8, 0.8);
