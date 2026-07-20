@@ -1,0 +1,92 @@
+[
+  {
+    "id": "F1",
+    "claim": "deaths come from the lunge, not a shoulder-brush",
+    "pass": false,
+    "detail": "contact damage is state-blind (full radius in seek/recover)"
+  },
+  {
+    "id": "F2a",
+    "claim": "duck windup pulse is visible (no alpha clamp, amp >= 0.4)",
+    "pass": false,
+    "detail": "windup base 1 amp 0.3 (CLAMPS -> invisible)"
+  },
+  {
+    "id": "F2b",
+    "claim": "turrets telegraph >= 0.3s in real time before firing",
+    "pass": false,
+    "detail": "no turret aim phase — bolts appear unannounced"
+  },
+  {
+    "id": "F3",
+    "claim": "duck hitbox matches its 8x6 sprite (no phantom vertical hits)",
+    "pass": false,
+    "detail": "circular r+1.4 hitbox vs 8x6 sprite"
+  },
+  {
+    "id": "F4",
+    "claim": "killing freezes the frame harder than being hit",
+    "pass": false,
+    "detail": "kill hitstop 0 vs hurt 0.09"
+  },
+  {
+    "id": "F5",
+    "claim": "intro does not gate play behind a long crawl",
+    "pass": false,
+    "detail": "intro stagger 2.4s/line -> last line at 9.6s"
+  },
+  {
+    "id": "F6",
+    "claim": "a fight room is always adjacent to the start room",
+    "pass": false,
+    "detail": "treasure/TOLL can sit next to start -> combat-free opening"
+  },
+  {
+    "id": "F7",
+    "claim": "death -> playing again is instant (<= 200ms)",
+    "pass": true,
+    "detail": "R calls newRun() synchronously"
+  },
+  {
+    "id": "F8",
+    "claim": "floor-1 suicide laps cannot buy permanent boons",
+    "pass": false,
+    "detail": "after 5 laps: pluma=100,umbra=100,aurum=100"
+  },
+  {
+    "id": "F9",
+    "claim": "enemies do not collapse to one-shots by depth 4",
+    "pass": false,
+    "detail": "duck hp expr: 3; sword cap absent"
+  },
+  {
+    "id": "F10",
+    "claim": "you cannot slash enemies through solid walls",
+    "pass": false,
+    "detail": "slash is distance+arc only — kills through pillars"
+  },
+  {
+    "id": "F11",
+    "claim": "slash reach does not trivially out-range contact",
+    "pass": false,
+    "detail": "reach 8.5 - contact 4.6 = 3.9 cells of free-hit margin"
+  },
+  {
+    "id": "F12a",
+    "claim": "interrupt farming does not inflate PLUMA",
+    "pass": true,
+    "detail": "pluma 5->1.00 100->1.00"
+  },
+  {
+    "id": "F12b",
+    "claim": "dash farming does not inflate UMBRA",
+    "pass": true,
+    "detail": "umbra 6->1.00 100->1.00"
+  },
+  {
+    "id": "F12c",
+    "claim": "mowing grass alone does not buy an A from AURUM",
+    "pass": false,
+    "detail": "aurum(tufts:98)=1.00"
+  }
+]
