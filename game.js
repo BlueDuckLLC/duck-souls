@@ -2850,13 +2850,15 @@ function drawGallery(dt) {
   plasma(G.t * 0.05, 0.08, [6, 8, 1]);
   G.cineSeen = G.cineSeen || loadCine();
   A.textC(6, 'THE CUTSCENE LIBRARY', 0);
-  A.textC(8, 'all twelve, always — number keys to watch, any other to leave', 1, 0.7);
+  A.textC(8, 'arrows move  ENTER plays  ESC back  (number keys jump)', 1, 0.7);
+  const gi = G.galI || 0;
   CUTSCENES.forEach((c, i) => {
     const col = i % 2, row = (i / 2) | 0;
     const x = 20 + col * 62, y = 14 + row * 5;
     const seen = G.cineSeen.has(i);
-    const label = (i + 1).toString().padStart(2, ' ') + '. ' + c.title + (seen ? '  *' : '');
-    A.text(x, y, label, (i % 5) + 2, seen ? 1 : 0.75);
+    const on = i === gi;
+    const label = (on ? '> ' : '  ') + (i + 1).toString().padStart(2, ' ') + '. ' + c.title + (seen ? '  *' : '') + (on ? ' <' : '');
+    A.text(x, y, label, on ? 5 : (i % 5) + 2, on ? 1 : (seen ? 1 : 0.75));
   });
   A.textC(80, '* witnessed — the first plays automatically when a new soul begins', 4, 0.5);
 }
@@ -2938,7 +2940,9 @@ function drawBestiary(dt) {
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
-  if (k === 'c') {
+  // gameplay-only keys must not leak into menus (C used to shadow the title's Credits shortcut
+  // and fire useItem() on every screen). Gate C/use-item to the play state.
+  if (k === 'c' && G.state === 'play') {
     const now2 = performance.now();
     if (G.lastC && now2 - G.lastC < 280) { G.lastC = 0; tryJelly(); return; }
     G.lastC = now2;
@@ -2963,11 +2967,19 @@ function onKey(k) {
     return;
   }
   if (G.state === 'gallery') {
-    if (k >= '1' && k <= '9') { playCine(+k - 1, 'gallery'); return; }
-    if (k === '0') { playCine(9, 'gallery'); return; }
-    if (k === '-') { playCine(10, 'gallery'); return; }
-    if (k === '=') { playCine(11, 'gallery'); return; }
-    if (!mod) { G.state = 'title'; G.titleT = 0; }
+    const N = CUTSCENES.length; G.galI = G.galI || 0;
+    // number hotkeys still jump straight to a scene (guarded to the real count)
+    if (k >= '1' && k <= '9') { if (+k - 1 < N) playCine(+k - 1, 'gallery'); return; }
+    if (k === '0') { if (9 < N) playCine(9, 'gallery'); return; }
+    if (k === '-') { if (10 < N) playCine(10, 'gallery'); return; }
+    if (k === '=') { if (11 < N) playCine(11, 'gallery'); return; }
+    // arrow cursor over the 2-column grid: L/R = ±1, U/D = ±2 (down a row)
+    if (k === 'arrowleft' || k === 'a') { G.galI = (G.galI + N - 1) % N; return; }
+    if (k === 'arrowright' || k === 'd') { G.galI = (G.galI + 1) % N; return; }
+    if (k === 'arrowup' || k === 'w') { G.galI = (G.galI + N - 2) % N; return; }
+    if (k === 'arrowdown' || k === 's') { G.galI = (G.galI + 2) % N; return; }
+    if (k === 'enter' || k === ' ' || k === 'x') { playCine(G.galI, 'gallery'); return; }
+    if (k === 'escape') { G.state = 'title'; G.titleT = 0; return; } // ESC backs out — arrows no longer exit
     return;
   }
   if (G.state === 'intro') {
@@ -2989,6 +3001,7 @@ function onKey(k) {
     const MENU = ['start', 'library', 'bestiary', 'credits', 'rules', 'memories'];
     if (k === 'arrowdown' || k === 's') { G.menuI = ((G.menuI || 0) + 1) % MENU.length; return; }
     if (k === 'arrowup' || k === 'w') { G.menuI = ((G.menuI || 0) + MENU.length - 1) % MENU.length; return; }
+    if (k === 'arrowleft' || k === 'arrowright') return; // vertical menu — sideways is a no-op, never a launch
     // shortcuts still work
     if (k === 'l') { G.state = 'lore'; G.loreT = 0; return; }
     if (k === 'h') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); return; }
@@ -3004,12 +3017,13 @@ function onKey(k) {
       else if (sel === 'memories') { G.state = 'lore'; G.loreT = 0; }
       return;
     }
-    if (!mod) newRun();
+    // NO catch-all launch: an unmapped key on the title must do nothing (arrows/stray letters
+    // used to fall through here and immediately start a run). Only ENTER/SPACE/X on DESCEND starts.
     return;
   }
   if (G.state === 'credits') { if (!mod && G.credT > 0.4) { G.state = 'title'; G.titleT = 0; } return; }
   if (G.state === 'trance') { if (!mod && G.tranceT > 1) enterBossArena(); return; }
-  if (G.state === 'bestiary') { if (!mod) { G.state = 'title'; G.titleT = 0; } return; }
+  if (G.state === 'bestiary') { if (k === 'escape' || k === 'enter' || k === ' ' || k === 'x') { G.state = 'title'; G.titleT = 0; } return; }
   if (G.state === 'judgment' && (k === ' ' || k === 'enter' || k === 'x')) {
     if (G.judgeT < 0.8) { G.judgeT = 1.1; return; } // first press: land every card now
     nextFloor(); return;                            // second press: descend
