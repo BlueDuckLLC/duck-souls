@@ -227,7 +227,25 @@ ES convergence) would be **refuted at the grader**, which is the correct behavio
 Per /tdd-fun, a bot's finding is a *candidate signal*, not ground truth; the human outranks it.
 The pipeline's job is to *surface graded candidates*, and it does.
 
-**Bottom line delivered:** a fast local RL environment (A), a working adversary + exploit-audit
-tool with an honest capability ceiling (B), and a closed local-model judge/miner loop (C) — the
-compounding substrate. The single highest-value follow-up is a PPO/credit-assignment agent on
-`headless.js` so the difficulty signal reflects a *competent* descender, not a passive camper.
+**B2 — `rlbot_pg.js` (REINFORCE, true policy gradient) — the credit-assignment test.** Built the
+recommended fix: a softmax-MLP policy, analytic backprop, reward-to-go + normalized-advantage
+baseline, dense attack-proximity shaping. **Result: it converges to the SAME passive local optimum**
+(spams 'use' 75%, 0 kills, floor 1) as gradient-free ES. So the barrier is **not** the optimizer —
+**two different RL paradigms fail identically.** The wall is *exploration under sparse reward*: to
+get any positive combat signal an agent must sample a full kill→clear→descend sequence, and until
+then, *not engaging* (which safely survives ~800–1200 steps) strictly dominates. A naive learner
+correctly finds that safe local optimum — a clean empirical restatement of "fun is not a scalar
+reward."
+
+**Therefore the real next step is a CURRICULUM, not a fancier optimizer:** start the agent adjacent
+to a single weak enemy (or reward first-blood heavily and decay it) so it *discovers* that
+attacking→killing→clearing pays, then anneal toward full runs. That — plus optionally a learned
+critic (A2C/PPO) once the reward is non-sparse — is what yields a *competent descender* whose
+max-floor is a trustworthy difficulty signal for AUTOTUNE. Until then the adversary is a reliable
+**exploit-detector** (it robustly finds passivity/positional degeneracies) but not a skill-ceiling probe.
+
+**Bottom line delivered:** a fast local RL environment (A, 158k fps), an ES adversary + a REINFORCE
+agent + an exploit-audit tool with a precisely-characterized ceiling (B/B2), and a closed
+gemma2:9b judge/miner loop (C) — all local, all committed, game untouched. The honest scientific
+finding — *two RL paradigms both converge to passive non-engagement because the reward is sparse* —
+is itself the most useful output, and it names the exact fix (curriculum bootstrap).
