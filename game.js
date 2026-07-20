@@ -611,6 +611,7 @@ function enterRoom(room, fromDir) {
   const arch = ARCH[room.arch] || ARCH.CAVE;
   const [ix, iy] = arch.inset;
   X0 = 1 + ix; X1 = COLS - 2 - ix; Y0 = 5 + iy; Y1 = ROWS - 2 - iy;
+  G.X0 = X0; G.X1 = X1; G.Y0 = Y0; G.Y1 = Y1; // exposed for the bot harness
   G.arch = arch;
   G.growT = 0; // walls grow in like the tutorial vine
   // Place the player relative to THIS room's bounds — rooms differ in size now, so a

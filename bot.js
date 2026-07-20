@@ -26,7 +26,7 @@
     window.dispatchEvent(new KeyboardEvent('keyup', { key: k }));
   };
   const hold = (k, v) => { window.keys[k] = v; };
-  const clearHold = () => ['x', 'shift', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].forEach(k => hold(k, false));
+  const clearHold = () => ['x', 'c', 'shift', 'arrowleft', 'arrowright', 'arrowup', 'arrowdown'].forEach(k => hold(k, false));
 
   let lastRoom = null, lastHp = null, lastDepth = 0, lastLore = 0;
 
@@ -35,8 +35,8 @@
     if (!G) return;
     if (L.t0 === null) L.t0 = now();
 
-    // menus: get into play
-    if (G.state === 'intro' || G.state === 'howto' || G.state === 'lore') { press('q'); return; }
+    // menus: get into play (skip cutscenes/gallery/intro/howto/lore)
+    if (G.state === 'cinema' || G.state === 'gallery' || G.state === 'intro' || G.state === 'howto' || G.state === 'lore') { press('q'); return; }
     if (G.state === 'title') { L.sessions++; press('q'); return; }
     if (G.state === 'judgment') { press(' '); return; }
     if (G.state === 'descend') return;
@@ -108,9 +108,21 @@
     // use the held item sometimes (bombs/gun/star see real play)
     if (p.held && G.enemies.length && Math.random() < 0.03) press('c');
 
+    // in the armory, walk to THIS session's chosen weapon and equip it
+    if (G.cur.type === 'armory' && !p.held) {
+      L.weapon = L.weapon || ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'][(Math.random() * 6) | 0];
+      const ped = (G.cur.items || []).find(i => i.kind === L.weapon && !i.dead);
+      if (ped) { steer(p, ped); return; }
+    }
     // grab loose items / piece
-    const want = (G.cur.items || []).find(i => i.slot && !i.dead) || G.cur.piece;
+    const want = (G.cur.items || []).find(i => i.slot && !i.dead && !i.pedestal) || G.cur.piece;
     if (want && !G.enemies.length) { steer(p, want); return; }
+    // fire the held weapon when it wants to be fired (ranged/charge weapons)
+    if (p.held && G.enemies.length) {
+      const wk = p.held.kind;
+      if (wk === 'hammer') { if (p.chargeT > 0.9) hold('c', false); else hold('c', true); } // charge then release
+      else if ((wk === 'whip' || wk === 'boomerang' || wk === 'sporebow') && Math.random() < 0.15) press('c');
+    }
 
     // fight: dodge the lunge, close otherwise
     let e = null, bd = 1e9;
@@ -132,15 +144,67 @@
     steer(p, doorTarget(G));
   }
 
+  // steer toward a target, but PATHFIND around walls (coarse 4-dir BFS on the solid grid)
+  // so the bot doesn't stall on columns/buttresses — the round-2 honest-limit fix.
+  let stuckAt = null, stuckT = 0, jukeUntil = 0, jukeDir = null;
   function steer(p, t) {
-    hold('arrowright', t.x > p.x + 0.6); hold('arrowleft', t.x < p.x - 0.6);
-    hold('arrowdown', t.y > p.y + 0.6); hold('arrowup', t.y < p.y - 0.6);
+    const G = window.G;
+    // stuck detection: if we've barely moved for ~0.6s, juke perpendicular for a bit
+    if (stuckAt && Math.hypot(p.x - stuckAt.x, p.y - stuckAt.y) < 1.2) stuckT += 60; else { stuckT = 0; stuckAt = { x: p.x, y: p.y }; }
+    if (stuckT > 550 && now() * 1000 > jukeUntil) { jukeUntil = now() * 1000 + 350; jukeDir = Math.random() < 0.5 ? 'x' : 'y'; stuckT = 0; }
+    let tx = t.x, ty = t.y;
+    if (now() * 1000 < jukeUntil) { // wiggle out of a wall pocket
+      if (jukeDir === 'x') { tx = p.x + (t.x > p.x ? -12 : 12); ty = t.y; } else { ty = p.y + (t.y > p.y ? -12 : 12); tx = t.x; }
+    } else {
+      const nxt = bfsStep(G, p.x, p.y, t.x, t.y);
+      if (nxt) { tx = nxt.x; ty = nxt.y; }
+    }
+    hold('arrowright', tx > p.x + 0.6); hold('arrowleft', tx < p.x - 0.6);
+    hold('arrowdown', ty > p.y + 0.6); hold('arrowup', ty < p.y - 0.6);
   }
 
-  // prefer doors leading to rooms we haven't entered; else rotate
+  // BFS on a coarse (2-cell) grid of the current room's solids; returns next waypoint.
+  function bfsStep(G, sx, sy, gx, gy) {
+    if (!G.solid) return null;
+    const COLS = 160, ROWS = 90, step = 2;
+    const solidAround = (x, y) => {
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const cx = (x + dx) | 0, cy = (y + dy) | 0;
+        if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
+        if (G.solid[cy * COLS + cx]) return true;
+      }
+      return false;
+    };
+    const key = (x, y) => x + ',' + y;
+    const start = { x: Math.round(sx / step) * step, y: Math.round(sy / step) * step };
+    const goal = { x: Math.round(gx / step) * step, y: Math.round(gy / step) * step };
+    const q = [start], seen = new Set([key(start.x, start.y)]), from = new Map();
+    let found = null, iter = 0;
+    while (q.length && iter++ < 1200) {
+      const c = q.shift();
+      if (Math.abs(c.x - goal.x) <= step && Math.abs(c.y - goal.y) <= step) { found = c; break; }
+      for (const [dx, dy] of [[step, 0], [-step, 0], [0, step], [0, -step]]) {
+        const nx = c.x + dx, ny = c.y + dy, k = key(nx, ny);
+        if (seen.has(k)) continue;
+        if (nx < 2 || nx > 158 || ny < 6 || ny > 88) continue;
+        if (solidAround(nx, ny)) continue;
+        seen.add(k); from.set(k, c); q.push({ x: nx, y: ny });
+      }
+    }
+    if (!found) return null;
+    // walk back to the first step off start
+    let cur = found, prev = cur;
+    while (from.has(key(cur.x, cur.y))) { prev = cur; cur = from.get(key(cur.x, cur.y)); if (cur.x === start.x && cur.y === start.y) break; }
+    return prev;
+  }
+
+  // prefer doors leading to rooms we haven't entered; else rotate. Door gaps sit at THIS
+  // room's own edges (rooms vary in size now), so read the live bounds.
   function doorTarget(G) {
     const dirs = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
-    const pos = { n: { x: 79.5, y: 6 }, s: { x: 79.5, y: 87 }, w: { x: 2, y: 46.5 }, e: { x: 157, y: 46.5 } };
+    const x0 = G.X0 || 1, x1 = G.X1 || 158, y0 = G.Y0 || 5, y1 = G.Y1 || 88;
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    const pos = { n: { x: mx, y: y0 + 2 }, s: { x: mx, y: y1 - 2 }, w: { x: x0 + 2, y: my }, e: { x: x1 - 2, y: my } };
     const open = Object.keys(G.cur.doors);
     const fresh = open.filter(d => {
       const r = G.rooms.get((G.cur.gx + dirs[d][0]) + ',' + (G.cur.gy + dirs[d][1]));

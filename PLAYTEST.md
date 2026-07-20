@@ -93,3 +93,26 @@ Ran against the 15/15 green build and broke five of it:
 5. **[M] Enemy fountain regen uncapped** while the player's capped at 2/room. → both capped.
 6. **[M] F5 swapped a behavioral threshold for a constant grep.** → static half kept as a
    proxy, labelled; behavioral 2.8s/3-presses measured in-browser and recorded in FUN.md.
+
+## Seat 5 — v5 weapons/orbs/architecture balance (round 3)
+
+1. **[H] Base slash never leaves your hand — armory is a bonus-picker, DPS band broken.**
+   `slash()` (X) is always live at reach 7 regardless of held weapon; only RAPIER rewrites
+   it. Every other weapon is a C-ability on a free sword. DPS: base 4.5, whip ~6.5, boom
+   ~8.5, rapier 10, flail 12.5, HAMMER ~15 (no cooldown) + permastun. Fix: holding a
+   weapon REPLACES the slash (each weapon owns X + its own animation). Criterion: no
+   weapon's bot single-target DPS > median×1.4; clear-time variance < 1.5×.
+2. **[H] FLAIL dominant AND boring** — zero-input r7 orbit, 8 DPS passive, stacks with
+   sword. Fix: replaces slash, 2/0.4s (5 DPS), front-180° only. Criterion: flail's input
+   rate not lowest while clear-time fastest (effort must correlate with reward).
+3. **[H/M] Base HP 3→4 shipped with no behavioral re-test** — F11 threat was tuned at HP 3.
+   [Operator design: 4 orbs is intentional; keep maxhp 4 but re-verify F11 still contested.]
+4. **[M/H] SPORE-BOW is a consumable disguised as a signature weapon** — 8 ammo then null,
+   blind-pick trap. Fix: regen 1 ammo/room cleared. Criterion: every armory weapon's
+   post-100-kill DPS ≥ median×0.6.
+5. **[M] AQUEDUCT/LABYRINTH geometry outruns enemy AI** — channel gaps too narrow, ducks
+   soft-lock. Fix: widen gaps to 14, cap solid runs at 6. Criterion: enemy reaches player
+   ≤4s, 0 permanently-unreachable rooms over 200 sims/arch.
+6. **[M] Weapons disagree with walls** — hammer/whip/flail/boomerang skip `losBlocked` the
+   sword respects, so they hit through maze walls. Fix: gate all weapon hits through LOS.
+   Criterion: enemy behind a solid midpoint takes 0 damage from ALL six weapons (extend F10).

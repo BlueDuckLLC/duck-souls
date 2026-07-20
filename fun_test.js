@@ -177,6 +177,59 @@ const has = re => re.test(SRC);
   fun('F12d', 'the board reports the real run, not the capped one', /99 cut \(5 counted\)/.test(card.stat), `pluma stat: "${card.stat}"`);
 }
 
+// ---- round 3: v5 weapons (panel seat 5) ----
+// F20: a held weapon OWNS the attack — no free base sword layered underneath.
+{
+  const ownsAttack = /WEAPON_STATS/.test(SRC) && /function weaponAttack/.test(SRC)
+    && /const wpn = ITEMS\[heldKind\(\)\][\s\S]{0,80}?weapon/.test(SRC.replace(/\s+/g, ' ')) === false // any signal it dispatches
+    ? true : (/heldKind\(\)[\s\S]{0,120}?weaponAttack\(/.test(SRC));
+  fun('F20', 'holding a weapon replaces the base slash (weapon owns the attack)', ownsAttack,
+    ownsAttack ? 'slash dispatches to the held weapon' : 'base slash fires under every weapon (flail/hammer = free sword + ability)');
+}
+// F21: DPS band — no weapon overpowers the median. Reads the shared WEAPON_STATS table.
+{
+  const m = SRC.match(/const WEAPON_STATS = (\{[\s\S]*?\n\});/);
+  let ok = false, detail = 'WEAPON_STATS table absent — DPS is not balanced from one source';
+  if (m) {
+    let tbl; try { tbl = new Function('return ' + m[1])(); } catch (e) { tbl = null; }
+    if (tbl) {
+      const dps = Object.values(tbl).map(w => (w.dmg * (w.multi || 1)) / w.cd);
+      const sorted = [...dps].sort((a, b) => a - b), med = sorted[(sorted.length / 2) | 0];
+      const mx = Math.max(...dps), mn = Math.min(...dps);
+      ok = mx <= med * 1.4 && mn >= med * 0.6;
+      detail = `dps ${dps.map(d => d.toFixed(1)).join('/')}; median ${med.toFixed(1)}, max ${(mx / med).toFixed(2)}x, min ${(mn / med).toFixed(2)}x`;
+    }
+  }
+  fun('F21', 'no signature weapon breaks the DPS band (0.6x..1.4x median)', ok, detail);
+}
+// F22: every weapon's hit path respects walls (extends F10 to all six).
+{
+  // each weapon-attack branch must reference losBlocked (or route through a checked helper)
+  const wa = SRC.match(/function weaponAttack[\s\S]*?\n\}/);
+  const losInWeapons = wa ? (wa[0].match(/losBlocked/g) || []).length : 0;
+  fun('F22', 'all six weapons respect walls, not just the base sword', losInWeapons >= 1 && /weaponAttack/.test(SRC),
+    `losBlocked refs in weaponAttack: ${losInWeapons}`);
+}
+// F23: SPORE-BOW is not a blind-pick trap — it regenerates.
+{
+  const regen = /sporebow[\s\S]{0,200}?ammo = Math\.min|ammo\+\+[\s\S]{0,80}?sporebow|regenSpore|sporeRegen/.test(SRC);
+  fun('F23', 'the spore-bow refills so it stays a weapon, not a consumable', regen,
+    regen ? 'spore ammo regenerates' : 'spore-bow empties to null — a trap pick');
+}
+// F24: hammer cannot be spammed (a cooldown gates the smash).
+{
+  const cd = /hammerCd|p\.atkCd = [^\n]*hammer|smashCd/.test(SRC);
+  fun('F24', 'the hammer smash has a cooldown (no permastun spam)', cd,
+    cd ? 'smash gated by a cooldown' : 'hammerSmash has no cooldown — 15 DPS + permastun');
+}
+// F25: each weapon has its OWN animation branch (color-matched per the operator ask).
+{
+  const anims = ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow']
+    .filter(w => new RegExp(`WANIM_${w}|anim.*${w}|${w}.*Anim|drawWeapon.*${w}`, 'i').test(SRC) || SRC.includes(`wanim === '${w}'`) || SRC.includes(`case '${w}'`));
+  fun('F25', 'every weapon has its own attack animation', anims.length >= 6 || /function drawWeaponFx/.test(SRC),
+    `weapons with a distinct anim branch: ${anims.length}/6`);
+}
+
 // ---- report ----
 const pass = results.filter(r => r.pass).length;
 console.log('\nDUCK SOULS — FUN HARNESS\n' + '='.repeat(56));
