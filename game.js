@@ -3975,6 +3975,9 @@ function frame(now) {
   fpsEma = fpsEma * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
   window.__fps = Math.round(fpsEma);
   G.t += dt;
+  // scene BGM: one wiring point — the manager owns the state->track map, mute, and crossfades,
+  // and degrades silently if an audio file is absent (music.js).
+  if (window.Music) { Music.setMuted(muted); Music.sync(G.state, G.boss && G.boss.def && G.boss.def.id, dt); }
   G.shake = Math.max(0, G.shake - dt * 12);
   G.flash = Math.max(0, G.flash - dt * 2.5);
   G.surge = Math.max(0, (G.surge || 0) - dt * 2);
