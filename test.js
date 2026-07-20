@@ -212,5 +212,16 @@ for (const stats of [base, perfect, awful]) {
   t('deep-merge override works', (()=>{ const merged = require('./params.js'); return merged.autotune && typeof merged.autotune.autoDeploy === 'boolean'; })());
 }
 
+// AUTOTUNE engine wiring
+{
+  t('autotune.mjs present', fs.existsSync(path.join(__dirname, 'autotune.mjs')));
+  t('AUTOTUNE.md operating manual present', fs.existsSync(path.join(__dirname, 'AUTOTUNE.md')));
+  const pj = fs.readFileSync(path.join(__dirname, 'params.js'), 'utf8');
+  t('params.js honors AUTOTUNE_PARAMS (node candidate gate)', /process\.env\.AUTOTUNE_PARAMS/.test(pj));
+  const at = fs.readFileSync(path.join(__dirname, 'autotune.mjs'), 'utf8');
+  t('tuner gates on FUN.md staying green (hard constraint)', /funTestGreen/.test(at) && /=== 0 failed/.test(at));
+  t('tuner uses a holdout sample (anti-overfit)', /holdoutSeeds/.test(at));
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

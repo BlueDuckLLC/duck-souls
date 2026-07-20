@@ -45,16 +45,19 @@
     for (const k in b) o[k] = (b[k] && typeof b[k] === 'object' && !Array.isArray(b[k])) ? deepMerge(a[k] || {}, b[k]) : b[k];
     return o;
   }
-  // override precedence: ?params=<base64> then localStorage
+  // override precedence: ?params=<base64> then localStorage (browser) / AUTOTUNE_PARAMS (node)
   let override = null;
   try {
     if (typeof location !== 'undefined') {
       const m = /[?&]params=([^&]+)/.exec(location.search);
       if (m) override = JSON.parse(atob(decodeURIComponent(m[1])));
-    }
-    if (!override && typeof localStorage !== 'undefined') {
-      const ls = localStorage.getItem('ducksouls_params');
-      if (ls) override = JSON.parse(ls);
+      if (!override && typeof localStorage !== 'undefined') {
+        const ls = localStorage.getItem('ducksouls_params');
+        if (ls) override = JSON.parse(ls);
+      }
+    } else if (typeof process !== 'undefined' && process.env && process.env.AUTOTUNE_PARAMS) {
+      // node: the fairness gate tests a candidate params file
+      override = JSON.parse(require('fs').readFileSync(process.env.AUTOTUNE_PARAMS, 'utf8'));
     }
   } catch (e) { override = null; }
 

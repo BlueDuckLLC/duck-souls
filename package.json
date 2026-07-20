@@ -1,0 +1,13 @@
+{
+  "name": "duck-souls",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node test.js && node fun_test.js && node combat_test.js && node boss_test.js",
+    "autotune": "node autotune.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "^25.3.0"
+  }
+}

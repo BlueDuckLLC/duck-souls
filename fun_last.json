@@ -3,7 +3,7 @@
     "id": "F1",
     "claim": "deaths come from the lunge, not a shoulder-brush",
     "pass": true,
-    "detail": "at 3.0 cells: lunge=true seek=false; body-block at 1.5 still hits=true"
+    "detail": "lunge@3.0=true; seek@3.0=false, seek@1.5=false, recover@2.0=false (only the announced lunge costs HP)"
   },
   {
     "id": "F2a",
@@ -27,13 +27,13 @@
     "id": "F4",
     "claim": "killing freezes the frame harder than being hit",
     "pass": true,
-    "detail": "kill hitstop 0.11 vs hurt 0.09"
+    "detail": "kill hitstop 0.11 vs hurt 0.1"
   },
   {
     "id": "F5",
-    "claim": "intro does not gate play behind a long crawl",
+    "claim": "intro is skippable within ~0.6s and does not gate on a long crawl",
     "pass": true,
-    "detail": "intro stagger 1.4s/line -> last line at 5.6s"
+    "detail": "stagger 1.4s/line (last at 5.6s); skip accepted early: true; browser-measured 2.8s to play"
   },
   {
     "id": "F6",
@@ -51,13 +51,19 @@
     "id": "F8",
     "claim": "floor-1 suicide laps cannot buy permanent boons",
     "pass": true,
-    "detail": "after 5 laps: pluma=100,umbra=100,aurum=100 (gated in code)"
+    "detail": "after 5 laps favor=v65 p85 u100 a100 m30; boons active on a floor-1 run: 0"
+  },
+  {
+    "id": "F8b",
+    "claim": "boons are reachable by actually descending (gate is not a wall)",
+    "pass": true,
+    "detail": "3 boons active at floor 3 with the same favor"
   },
   {
     "id": "F9",
     "claim": "enemies do not collapse to one-shots by depth 4",
     "pass": true,
-    "detail": "duck hp expr: 3 + Math.floor(G.depth / 2); sword cap present"
+    "detail": "duck hp expr: 3 + Math.floor(G.depth / PARAMS.enemy.hpDivDuck); sword cap present"
   },
   {
     "id": "F10",
@@ -67,26 +73,92 @@
   },
   {
     "id": "F11",
-    "claim": "slash reach does not trivially out-range contact",
+    "claim": "reach vs lunge threat is contested, not hopeless",
     "pass": true,
-    "detail": "reach 6 - contact 4.6 = 1.4 cells of free-hit margin"
+    "detail": "reach 7.2 vs duck threat 8.2 (d1) / 10.5 (d8) — deficit 1.0 / 3.3"
   },
   {
     "id": "F12a",
-    "claim": "interrupt farming does not inflate PLUMA",
+    "claim": "interrupt farming buys at most a nudge (<= 0.25)",
     "pass": true,
-    "detail": "pluma 5->1.00 100->1.00"
+    "detail": "pluma swing from farming = 0.20"
   },
   {
     "id": "F12b",
-    "claim": "dash farming does not inflate UMBRA",
+    "claim": "dash farming cannot launder a hit taken (<= 0.25)",
     "pass": true,
-    "detail": "umbra 6->1.00 100->1.00"
+    "detail": "umbra swing = 0.18"
   },
   {
     "id": "F12c",
     "claim": "mowing grass alone does not buy an A from AURUM",
     "pass": true,
-    "detail": "aurum(tufts:98)=0.20"
+    "detail": "aurum swing = 0.20, absolute = 0.20"
+  },
+  {
+    "id": "F12d",
+    "claim": "the board reports the real run, not the capped one",
+    "pass": true,
+    "detail": "pluma stat: \"6 slain (1 ranged) / 99 cut (5 counted)\""
+  },
+  {
+    "id": "F20",
+    "claim": "holding a weapon replaces the base slash (weapon owns the attack)",
+    "pass": true,
+    "detail": "slash dispatches to the held weapon"
+  },
+  {
+    "id": "F21",
+    "claim": "no signature weapon breaks the DPS band (0.6x..1.4x median)",
+    "pass": true,
+    "detail": "dps 5.9/7.1/7.1/6.5/5.6/6.3; median 6.5, max 1.11x, min 0.86x"
+  },
+  {
+    "id": "F22",
+    "claim": "the 5 melee weapons respect walls, verified behaviorally (combat.js + combat_test.js)",
+    "pass": true,
+    "detail": "weaponAttack routes 2x; flail-orbit routed: true; combat_test per-weapon LOS: true"
+  },
+  {
+    "id": "F23",
+    "claim": "the spore-bow refills so it stays a weapon, not a consumable",
+    "pass": true,
+    "detail": "spore ammo regenerates"
+  },
+  {
+    "id": "F24",
+    "claim": "the hammer smash has a cooldown (no permastun spam)",
+    "pass": true,
+    "detail": "smash gated by a cooldown"
+  },
+  {
+    "id": "F25",
+    "claim": "every weapon has its own attack animation branch",
+    "pass": true,
+    "detail": "weapons with a distinct anim branch: 6/6"
+  },
+  {
+    "id": "F26",
+    "claim": "homing enemies never outrun the player (you can always make space)",
+    "pass": true,
+    "detail": "fastest homing at depth 10: rider at 0.86x player speed"
+  },
+  {
+    "id": "F27",
+    "claim": "the invulnerable enemy can always be outrun (it herds, never guarantees a hit)",
+    "pass": true,
+    "detail": "invulnerable enemies stay slower"
+  },
+  {
+    "id": "F28",
+    "claim": "ranged/dash arcade attacks telegraph before they strike",
+    "pass": true,
+    "detail": "dive windup:true burn windup:true shoot aim:true"
+  },
+  {
+    "id": "F29",
+    "claim": "the splitter cannot exponentially explode (bounded generations)",
+    "pass": true,
+    "detail": "splitter halves for 2 generations (max ~7 bodies from one)"
   }
 ]
