@@ -108,7 +108,7 @@ function mulberry32(a) {
 }
 
 // ---------- input ----------
-const keys = {};
+const keys = window.keys = {};
 window.addEventListener('keydown', e => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
   keys[e.key.toLowerCase()] = true;
@@ -370,6 +370,7 @@ function drawHowto(dt) {
   if (grown >= pts && ((G.t * 1.5) | 0) % 2 === 0) A.textC(88, '- ANY KEY: PHOTOSYNTHESIZE -', 5);
 }
 window.__fps = 0;
+window.G = G; // exposed for the /tdd-fun bot harness (bot.js) and headless verification
 
 // Boons must be EARNED THIS RUN: standing alone is not enough, or floor-1 suicide laps
 // buy permanent god-mode (exploit-hunter seat, 2026-07-20). Curses need no such gate —

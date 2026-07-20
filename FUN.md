@@ -63,3 +63,32 @@ reach 6.0 made melee a coin-flip (threat 10.25 vs reach 6.0) → 7.0 + shorter l
 enemy fountain regen was uncapped while the player's was capped → both capped at 2;
 MORS's `depth/6` curve left ordinary players permanently cursed (curses have no gate,
 correctly) → `0.15 + depth/5` and F-delta −9 → −7.
+
+---
+
+# Round 2 (2026-07-20) — the BEHAVIORAL round
+
+Round 1 was almost entirely structural (constants read from source). This round measures
+real scripted-bot sessions (`bot.js`, loaded only under `?bot=1`) against the hypotheses
+the skill's canon lists but round 1 never tested. Panel: the onboarding/cadence seat
+(PLAYTEST.md seat 5).
+
+| id | claim | metric (from bot sessions) | threshold |
+|----|-------|---------------------------|-----------|
+| F13 | Deaths are telegraphed, not bumped into | % of damage events where the attacker was in windup/lunge (or a bolt) | ≥ 70% |
+| F14 | Rewards keep arriving | max gap between novel events in the first 180s | ≤ 45s |
+| F15 | Rooms ask something of you | decision-rooms / rooms seen | ≥ 40% |
+| F16 | The world stays surprising | distinct mutators seen by end of floor 3 | ≥ 8 |
+| F17 | Mutators aren't hidden by chance | P(TOLL never appears in 5 floors), 200 seeded genFloor sims | ≤ 5% |
+| F18 | The first death changes something | death screen shows MEMORIES n/15 + a literal next goal | present |
+| F19 | The tutorial covers what kills you | plant nodes mention doors / stairs / swap / no-heal | 4/4 |
+
+## RED (round 2, measured 2026-07-20, bot session)
+
+- F13 **0%** telegraphed (the one death: `duck/no-tele/seen`) — FAIL
+- F14 max gap 7.4s in a 15s session — provisional PASS, resample after fixes
+- F15 60% decision rooms — PASS (small sample)
+- F16 **1** distinct mutator, **80%** plain rooms — FAIL
+- F17 not yet simulated — FAIL (no method)
+- F18 death screen has no progress/goal — FAIL
+- F19 plant tutorial mentions 0/4 — FAIL
