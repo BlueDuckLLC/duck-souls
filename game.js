@@ -2234,7 +2234,7 @@ function drawGallery(dt) {
 
 // the credits — a scrolling scene using every animation trick in the box
 const CREDIT_LINES = [
-  '', '', 'DANK SOULS', '', 'a fast-paced ASCII roguelite', 'judged by a pantheon', '',
+  '', '', 'DUCK SOULS', '', 'a fast-paced ASCII roguelite', 'judged by a pantheon', '',
   '~', '', 'EVERYTHING YOU SAW', 'was pixels drawn to a 160x90 canvas', 'and read back as characters',
   'luminance picks the glyph', 'hue picks the color', '', '~', '',
   'THE PANTHEON', 'VELOX, god of haste', 'PLUMA, the duck-mother',
@@ -2256,7 +2256,7 @@ function drawCredits(dt) {
     const y = i * 2 - scroll + ROWS;
     if (y < 2 || y > ROWS - 2) return;
     if (line === '~') { for (let x = 60; x < 100; x++) px(x, y, 4, 0.4 + 0.3 * Math.sin(x * 0.3 + G.t * 4)); return; }
-    const big = line === 'DANK SOULS' || line === 'BlueDuck LLC';
+    const big = line === 'DUCK SOULS' || line === 'BlueDuck LLC';
     A.textC(y, line, big ? 5 : line === line.toUpperCase() && line.length > 2 ? 2 : 0, big ? 1 : 0.85);
   });
   // a couple of orbiting blue orbs, because that's the game now
@@ -2746,7 +2746,7 @@ function drawHud() {
   // HUD orbs: filled blue O = full, spent = dim. Last one runs red and pulses.
   let orbs = '';
   for (let i = 0; i < p.maxhp; i++) orbs += i < p.hp ? 'O' : '.';
-  A.text(2, 0, 'DANK SOULS', 1);
+  A.text(2, 0, 'DUCK SOULS', 1);
   A.text(14, 0, 'FLOOR ' + G.depth, 5);
   A.text(24, 0, 'LIFE ' + orbs, p.hp <= 1 ? 7 : 6, p.hp <= 1 ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 10)) : 1);
   if (p.dashCd <= 0) A.text(38, 0, 'DASH READY', 3);
@@ -2841,7 +2841,7 @@ function drawLore(dt) {
 
 function drawTitle() {
   plasma(G.t * 0.7, 0.5, [6, 3, 8, 2]);
-  bigText(80, 14, 'DANK', 2, 5, 0.95, 1.1);
+  bigText(80, 14, 'DUCK', 2, 5, 0.95, 1.1);
   bigText(80, 26, 'SOULS', 2, 7, 0.95, 1.1);
   // dim the plasma behind the menu block so text pops
   S.globalAlpha = 0.72; S.fillStyle = '#000';
