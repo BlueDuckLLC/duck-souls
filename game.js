@@ -256,13 +256,70 @@ const INTRO_LINES = [
   'DESCEND. BE GRADED. RETURN. AGAIN.',
 ];
 // typewriter: centered on the FULL string so text never re-centers as it types
-function typeText(y, str, ci, elapsed, cps = 28, alpha = 1) {
+function typeText(y, str, ci, elapsed, cps = 28, alpha = 1, atX = null) {
   const n = Math.max(0, Math.min(str.length, Math.floor(elapsed * cps)));
   if (n <= 0) return false;
-  const x = Math.round((COLS - str.length) / 2);
+  const x = atX !== null ? Math.round(atX) : Math.round((COLS - str.length) / 2);
   A.text(x, y, str.slice(0, n), ci, alpha);
   if (n < str.length && ((G.t * 16) | 0) % 2 === 0) A.text(x + n, y, '_', ci, alpha);
   return n >= str.length;
+}
+
+// ---------- the rules, as a plant would hear them ----------
+// A vine grows; each instruction blooms as a flower. Same rules. Slower. Greener.
+const GROW_NODES = [
+  { phrase: 'lean toward what light remains', key: 'ARROWS / WASD  --  move' },
+  { phrase: 'every rose grows one thorn', key: 'X or SPACE  --  slash' },
+  { phrase: 'be seed. be elsewhere.', key: 'Z or SHIFT  --  dash, untouchable' },
+  { phrase: 'swallow the rain when it comes', key: 'C  --  use what you hold' },
+  { phrase: 'endure winter. rise again.', key: 'M mute    R restart    L memories' },
+];
+const vineX = t => 80 + Math.sin(t * 5.2) * 10 + Math.sin(t * 11) * 3;
+const vineY = t => 82 - t * 64;
+function drawHowto(dt) {
+  G.howT = (G.howT || 0) + dt;
+  plasma(G.t * 0.06, 0.08, [4, 6, 1]);
+  A.textC(6, 'HOW A PLANT HEARS THE RULES', 4);
+  A.textC(8, 'the same rules. slower. greener.', 1, 0.5);
+  const pts = 110;
+  const grown = Math.min(pts, G.howT * 30);
+  // roots first: a seed remembers downward
+  for (let i = 0; i < 5; i++) px(80 + (i - 2) * 2, 83 + (i % 2), 1, 0.25 * Math.min(1, G.howT * 2));
+  for (let i = 0; i < grown; i++) {
+    const t = i / pts;
+    const sway = Math.sin(G.t * 1.4 + t * 6) * (t * 1.6); // alive, not drawn once
+    px(vineX(t) + sway, vineY(t), 4, 0.5 + 0.3 * Math.sin(i * 0.7));
+    if (i % 6 === 3) { // leaves unfurl as they age
+      const age = Math.min(1, (grown - i) / 25);
+      const side = (i % 12 === 3) ? 1 : -1;
+      for (let k = 1; k <= Math.round(2 * age) + 1; k++) {
+        px(vineX(t) + sway + side * k, vineY(t) - (k > 2 ? 1 : 0), 4, 0.35 * age);
+      }
+    }
+  }
+  GROW_NODES.forEach((nd, i) => {
+    const ni = (0.14 + i * 0.19) * pts; // stem index where this one blooms
+    if (grown < ni) { nd.bloomed = false; return; }
+    const t = ni / pts;
+    const x = vineX(t), y = vineY(t);
+    const side = i % 2 ? -1 : 1;
+    const bx = x + side * 8;
+    const age = (grown - ni) / 30; // seconds since bloom
+    if (!nd.bloomed) { nd.bloomed = true; A.startGlitch(0.35, 0.18); tone(300 + i * 90, 360 + i * 90, 0.35, 'triangle', 0.06); }
+    for (let k = 1; k < 8; k++) px(x + side * k, y, 4, 0.5); // branch reaches out
+    const r = Math.min(2.6, age * 5); // petals open
+    for (let pt2 = 0; pt2 < 6; pt2++) {
+      const a = pt2 / 6 * Math.PI * 2 + G.t * 0.6;
+      px(bx + Math.cos(a) * r, y + Math.sin(a) * r * 0.8, [2, 8, 5][i % 3], 0.8);
+    }
+    px(bx, y, 5, 1);
+    const w = Math.max(nd.phrase.length + 2, nd.key.length);
+    const tx = side === 1 ? bx + 6 : bx - 6 - w;
+    typeText(y - 1, '"' + nd.phrase + '"', 4, age, 20, 0.9, tx);
+    const keyAt = age - (nd.phrase.length + 2) / 20 - 0.25;
+    if (keyAt > 0) A.text(tx, y + 1, nd.key, 0, Math.min(1, keyAt * 2.5));
+  });
+  if (grown >= pts && ((G.t * 1.5) | 0) % 2 === 0) A.textC(88, '- ANY KEY: PHOTOSYNTHESIZE -', 5);
 }
 window.__fps = 0;
 
@@ -989,15 +1046,24 @@ function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
   if (k === 'c') { useItem(); return; }
   const mod = ['shift', 'meta', 'control', 'alt'].includes(k);
-  if (G.state === 'intro' || G.state === 'lore') {
-    if (!mod && (G.state === 'lore' || G.introT > 0.6)) {
+  if (G.state === 'intro') {
+    if (!mod && G.introT > 0.6) {
       localStorage.setItem(LS_SEEN, '1');
+      if (!localStorage.getItem('ducksouls_grown')) { G.state = 'howto'; G.howT = 0; }
+      else { G.state = 'title'; G.titleT = 0; }
+    }
+    return;
+  }
+  if (G.state === 'lore' || G.state === 'howto') {
+    if (!mod && (G.state === 'lore' || G.howT > 0.6)) {
+      if (G.state === 'howto') localStorage.setItem('ducksouls_grown', '1');
       G.state = 'title'; G.titleT = 0;
     }
     return;
   }
   if (G.state === 'title') {
     if (k === 'l') { G.state = 'lore'; G.loreT = 0; return; }
+    if (k === 'h') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); return; }
     if (!mod) newRun();
     return;
   }
@@ -1301,9 +1367,11 @@ function drawTitle() {
     A.textC(73, 'RUNS ' + led.runs + '   DEEPEST FLOOR ' + led.deepest + '   BEST ' + led.bestScore +
       (lr ? '   LAST: F' + lr.f + ' / ' + lr.k + ' KILLS / ' + lr.s : ''), 1, 0.75);
     const nLore = P.unlockedLore(led).length;
-    A.textC(75, '[L] MEMORIES (' + nLore + '/' + P.LORE.length + ')', 8, 0.8);
+    A.textC(75, '[L] MEMORIES (' + nLore + '/' + P.LORE.length + ')     [H] HOW A PLANT HEARS THE RULES', 8, 0.8);
     const latest = P.unlockedLore(led).slice(-1)[0];
     if (latest) typeText(79, '"' + latest.text + '"', 1, G.titleT - 1, 24, 0.6);
+  } else {
+    A.textC(75, '[H] HOW A PLANT HEARS THE RULES', 4, 0.8);
   }
   A.textC(86, 'BlueDuck LLC / the ducks are dragons / the dragons are ducks', 1, 0.4);
 }
@@ -1408,6 +1476,7 @@ function frame(now) {
 
   A.beginFrame();
   if (G.state === 'intro') drawIntro(dt);
+  else if (G.state === 'howto') drawHowto(dt);
   else if (G.state === 'lore') drawLore(dt);
   else if (G.state === 'title') drawTitle();
   else if (G.state === 'judgment') drawJudgment(dt);
