@@ -126,3 +126,12 @@ fight verified end-to-end in-browser via the REAL hit path (slash → orb → st
 → defeat → +500/ledger/stairs). OWED: behavioral fun-hypotheses for the boss fight itself
 (attack dodgeability at depth, trance skip latency, orbs-reachable-per-form) — the next
 /tdd-fun round's RED set. Recorded per the honest-limits law rather than claimed.
+
+## Round 6 note (whip rework, 2026-07-20)
+
+The whip became a physical verlet chain (hold-to-wind, release-to-crack, tip-speed
+damage). SME council (Castlevania designer / physics-animation / game-feel seats)
+reviewed pre-ship; all 3 findings applied (commitment slow, link-bridge legibility,
+hit payoff). OWED to the next /tdd-fun RED set: whip DPS re-measured behaviorally
+(the WEAPON_STATS table entry no longer fully describes it — wind time is real cost),
+and jelly-form + boss-fight dodgeability hypotheses from round 5.
