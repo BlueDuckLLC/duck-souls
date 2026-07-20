@@ -237,7 +237,16 @@ then, *not engaging* (which safely survives ~800–1200 steps) strictly dominate
 correctly finds that safe local optimum — a clean empirical restatement of "fun is not a scalar
 reward."
 
-**Therefore the real next step is a CURRICULUM, not a fancier optimizer:** start the agent adjacent
+**B2b — curriculum attempt (decaying damage-dealt reward).** Rewarded actual enemy-HP lost from the
+agent's own attacks, with a weight that decays over training (bootstrap combat, then wean onto real
+kills/floors). **Directional success, not convergence:** by end of training the *stochastic* policy
+reached **avgKills ~1.5** (vs ES ~0.2) — it genuinely learned to engage — but the *greedy* argmax
+extraction collapsed to a degenerate aggressive policy that dies fast (15/20 deaths, still floor 1).
+So a damage curriculum DOES break passivity, but 240 REINFORCE iters + a tiny net don't yield a
+competent greedy descender. The missing pieces are the standard ones: a **value critic (A2C/PPO)**
+to cut variance, **entropy scheduling**, and more iterations. Recorded as an honest partial.
+
+**Therefore the real next step is a CURRICULUM + a critic, not a fancier optimizer alone:** start the agent adjacent
 to a single weak enemy (or reward first-blood heavily and decay it) so it *discovers* that
 attacking→killing→clearing pays, then anneal toward full runs. That — plus optionally a learned
 critic (A2C/PPO) once the reward is non-sparse — is what yields a *competent descender* whose

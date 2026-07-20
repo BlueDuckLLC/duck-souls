@@ -53,14 +53,21 @@ function applyGrads(net, grads, lr, n) {
   for (let a = 0; a < ACT; a++) { net.b2[a] += lr * grads.b2[a] / n; for (let i = 0; i < HID; i++) net.W2[a][i] += lr * grads.W2[a][i] / n; }
 }
 
-// one episode: collect (x,h,p,a,r) with a DENSE shaped reward; return trajectory + stats
-function episode(env, net, seed, rng, maxSteps = 500) {
-  env.reset(seed); let obs = env.observe(); const traj = []; let kills0 = 0;
+// one episode. CURRICULUM: a landed hit (G.hitstop spikes right after an attack) is rewarded
+// densely with weight `hitW` that DECAYS across training — early on it teaches "attack -> connect
+// -> good", later the agent must rely on the real kill/floor reward. This is the fix RL_FUN.md
+// named: bootstrap combat discovery so the sparse chain gets sampled.
+const sumHp = env => (env.sb.G.enemies || []).reduce((s, e) => s + Math.max(0, e.hp || 0), 0);
+function episode(env, net, seed, rng, hitW = 0.3, maxSteps = 500) {
+  env.reset(seed); let obs = env.observe(); const traj = [];
   for (let t = 0; t < maxSteps; t++) {
     const { h, p } = forward(net, obs); const a = sample(p, rng);
-    const near = (a === ATK && (obs[9] || 1) < 0.16) ? 0.06 : 0;   // dense attack-proximity shaping
+    const hpBefore = sumHp(env);
     const r = env.step(a);
-    traj.push({ x: obs, h, p, a, r: r.reward + near });
+    const dmg = Math.max(0, hpBefore - sumHp(env));               // enemy HP lost this step (hits+kills)
+    const landed = (a === ATK) ? Math.min(dmg, 4) * hitW : 0;     // reward ONLY damage from our attacks
+    const near = (a === ATK && (obs[9] || 1) < 0.16) ? 0.03 : 0;  // faint proximity nudge
+    traj.push({ x: obs, h, p, a, r: r.reward + landed + near });
     obs = r.obs;
     if (r.done) break;
   }
@@ -73,9 +80,10 @@ function train(iters = 120, batch = 16) {
   let net = initNet(rng), best = { avg: -1e9, net: null };
   console.log(`REINFORCE: obs ${OBS} hid ${HID} act ${ACT} · lr ${LR} γ ${GAMMA} · ${iters} iters × ${batch} eps`);
   for (let it = 0; it < iters; it++) {
+    const hitW = Math.max(0, 0.4 * (1 - it / (iters * 0.6)));  // curriculum: decay landed-hit bonus
     const grads = zeroGrads(); const eps = []; let allAdv = [];
     for (let b = 0; b < batch; b++) {
-      const ep = episode(env, net, 1 + ((rng() * 1e6) | 0), rng); eps.push(ep);
+      const ep = episode(env, net, 1 + ((rng() * 1e6) | 0), rng, hitW); eps.push(ep);
       // reward-to-go
       let G = 0; const rtg = new Array(ep.traj.length);
       for (let t = ep.traj.length - 1; t >= 0; t--) { G = ep.traj[t].r + GAMMA * G; rtg[t] = G; }
