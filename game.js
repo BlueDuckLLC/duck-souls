@@ -530,7 +530,7 @@ function floorStatsInit(roomCount) {
 // ---------- floor / room generation ----------
 function genFloor() {
   const rng = G.rng;
-  const n = 4 + Math.min(G.depth, 4);
+  const n = G.depth >= 4 ? 4 : 3; // v10: start -> minions -> BOSS (human finding H1)
   const rooms = new Map();
   const put = (gx, gy) => rooms.set(gx + ',' + gy, { gx, gy, doors: {}, type: 'fight', cleared: false, spawned: false, entered: false, seed: (rng() * 1e9) | 0 });
   put(0, 0);
@@ -614,7 +614,7 @@ function genFloor() {
     return [rx0 + 8 + rng() * Math.max(4, rx1 - rx0 - 16), ry0 + 6 + rng() * Math.max(4, ry1 - ry0 - 12)];
   };
   const fights = [...rooms.values()].filter(r => r.type === 'fight');
-  if (fights.length >= 2) { // key+chest from floor 1: the reward loop starts immediately
+  if (fights.length >= 1) { // v10: one minion room is enough — it holds key AND chest
     // the ritual, simplified: key and chest share ONE room (clear it, take both)
     const ka = fights[(rng() * fights.length) | 0];
     const [kx, ky] = spot(ka);
@@ -636,6 +636,7 @@ function genFloor() {
   G.player.x = 80; G.player.y = 47;
   enterRoom(start, null);
   msg('FLOOR ' + G.depth, 5, 2.2);
+  msg('find the KEY. open the CHEST. face what answers.', 1, 3);
 }
 
 function enterRoom(room, fromDir) {
@@ -1493,13 +1494,13 @@ const BOSSES = [
   },
 ];
 
-function bossForDepth(depth) { return BOSSES[(Math.floor(depth / 3) - 1 + BOSSES.length * 9) % BOSSES.length]; }
+function bossForDepth() { return BOSSES[(G.rng() * BOSSES.length) | 0]; } // v10: random boss, every floor
 function bossRoomKey() { for (const [k, r] of G.rooms) if (r.type === 'stairs') return k; return '0,0'; }
 
 // THE POOL BREAK: the current frame's lit cells become billiard balls — scattered,
 // ricocheting, colliding — then the table clears and the boss is waiting. ~5 seconds.
 function startPoolBreak() {
-  G.tranceBoss = bossForDepth(G.depth);
+  G.tranceBoss = bossForDepth();
   const img = A.sctx.getImageData(0, 0, COLS, ROWS).data;
   const balls = [];
   for (let y = 0; y < ROWS && balls.length < 240; y += 2) {
@@ -1564,7 +1565,7 @@ function enterBossArena() {
 }
 
 function startBossFight() {
-  const def = bossForDepth(G.depth);
+  const def = G.tranceBoss || bossForDepth();
   G.boss = {
     def, st: Boss.newBossState(def, G.depth),
     x: (X0 + X1) / 2, y: Y0 + (Y1 - Y0) * 0.3, vx: 0, vy: 0,
@@ -1666,6 +1667,9 @@ function bossDefeated() {
   G.shake = 8; G.hitstop = 0.2;
   A.startGlitch(1, 0.6, 'chroma');
   G.run.bonus = (G.run.bonus || 0) + 500;
+  // the boss drops the floor's jackpot (moved from the chest, which now only summons)
+  const jack = ['heart', Math.random() < 0.5 ? 'sword' : 'boots', 'heart'];
+  jack.forEach((k, i) => G.pickups.push({ x: 74 + i * 6, y: 52, kind: k, ph: 0 }));
   G.ledger['felled_' + def.id] = 1;
   G.ledger.bossesFelled = (G.ledger.bossesFelled || 0) + 1;
   saveLedger();
@@ -2315,7 +2319,7 @@ function updatePlay(dt) {
         ch.opened = true; p.held = null;
         G.floorStats.chestsOpened++;
         G.run.bonus = (G.run.bonus || 0) + 100;
-        if (G.depth % 3 === 0 && !G.cur.bossDone && !G.rooms.get(bossRoomKey()).bossDone) {
+        if (!G.cur.bossDone && !G.rooms.get(bossRoomKey()).bossDone) { // v10: EVERY floor's chest is the invitation
           // BOSS FLOOR: the chest IS the invitation — the world breaks like a rack of pool balls
           startPoolBreak();
         } else {
@@ -2353,7 +2357,7 @@ function updatePlay(dt) {
       else if (pk.kind === 'potion') {
         // the trance takes you; the boss is on the other side
         G.state = 'trance'; G.tranceT = 0;
-        G.tranceBoss = bossForDepth(G.depth);
+        G.tranceBoss = bossForDepth();
         A.startGlitch(1, 0.6, 'chroma');
         tone(80, 400, 2.0, 'sawtooth', 0.08); tone(120, 500, 2.0, 'sine', 0.06, 0.1);
       }
@@ -2386,7 +2390,7 @@ function updatePlay(dt) {
   // the boss owns its arena
   if (G.boss) updateBoss(dt);
   // stairs (on boss floors, only after the boss falls)
-  if (G.cur.type === 'stairs' && G.cur.cleared && (G.depth % 3 !== 0 || G.cur.bossDone)) {
+  if (G.cur.type === 'stairs' && G.cur.cleared && G.cur.bossDone) { // stairs only after the boss falls
     if (Math.abs(p.x - 80) < 3 && Math.abs(p.y - 47) < 3) beginJudgment();
   }
 }

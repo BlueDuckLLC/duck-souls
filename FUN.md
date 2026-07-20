@@ -135,3 +135,12 @@ reviewed pre-ship; all 3 findings applied (commitment slow, link-bridge legibili
 hit payoff). OWED to the next /tdd-fun RED set: whip DPS re-measured behaviorally
 (the WEAPON_STATS table entry no longer fully describes it — wind time is real cost),
 and jelly-form + boss-fight dodgeability hypotheses from round 5.
+
+## H1 — first HUMAN playtest finding (2026-07-20)
+
+The operator played and could not find the boss (gated behind depth 3 + ritual). Per the
+skill's own law the human outranks every green: floor grammar rewritten to
+start → minions(key+chest) → BOSS (random, every floor); boss drops the jackpot; stairs
+gated on the kill; breadcrumb line on floor entry. Structural greens stayed green through
+the change — which is itself the point: they measured preconditions, the human measured
+the experience.
