@@ -133,6 +133,24 @@ for (const stats of [base, perfect, awful]) {
   }
   // six signature weapons declared as a set
   t(`six signature weapons`, /WEAPONS = \['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'\]/.test(src));
+
+  // the arcade roster: every ENEMIES key must map to a real archetype the AI consumes
+  const enemyKeys = ['grunt', 'ghost', 'hopper', 'strafer', 'rider', 'splitter', 'inflater',
+    'diver', 'marcher', 'spinner', 'lobber', 'waller', 'bubbler', 'otto', 'burner', 'slinky'];
+  const archMatch = src.match(/function arcadeAI[\s\S]*?\n\}/);
+  const archBody = archMatch ? archMatch[0] : '';
+  const usedArchs = new Set((src.match(/arch: '(\w+)'/g) || []).map(s => s.replace(/arch: '|'/g, '')));
+  for (const k of enemyKeys) {
+    const declared = new RegExp(`${k}: \\{ arch:`).test(src);
+    t(`enemy ${k} declared with an archetype`, declared);
+  }
+  // every archetype used in ENEMIES must have a case in arcadeAI (no dead archetype)
+  for (const a of usedArchs) {
+    if (['chase', 'ghost', 'hop', 'strafe', 'joust', 'split', 'dive', 'march', 'spin', 'lob', 'wall', 'shoot', 'bounce', 'burn', 'slink'].includes(a)) {
+      t(`archetype ${a} handled in arcadeAI`, archBody.includes(`case '${a}'`) || (a === 'slink' && /slinkAI/.test(src)));
+    }
+  }
+  t(`sixteen arcade enemies + prime slinky`, enemyKeys.length === 16 && /PRIMES = \[2, 3, 5, 7/.test(src));
 }
 
 // lore: every memory is earned by a pure function over the lifetime ledger

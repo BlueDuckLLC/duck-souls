@@ -242,6 +242,23 @@ const SPR = {
     ['  ####  ', ' #o#### ', '<###### ', ' ###### ', ' ###### ', '  #  #  '],
     ['  ####  ', ' #o#### ', '<###### ', ' ###### ', '  ####  ', '  #  #  '],
   ],
+  // --- arcade homage roster (compact sprites; one frame each unless animated) ---
+  grunt: [['#o#o#', '#####', '#   #']],                       // Robotron grunt
+  ghost: [[' ### ', '#o#o#', '#####', '# # #']],              // Pac ghost
+  hopper: [[' o o ', '#####', ' # # ']],                      // Q*bert hopper
+  strafer: [['>####', '#o##<', '>####']],                     // Defender strafer
+  rider: [[' ^^ ', '#oo#', '####', '/  \\']],                 // Joust mount-rider
+  splitter: [[' ## ', '####', '####', ' ## ']],               // Asteroids splitter
+  inflater: [[' ## ', '#oo#', '####']],                       // Dig Dug inflater
+  diver: [['\\   /', ' #o# ', '  #  ']],                      // Galaga diver
+  marcher: [['#o#o#', ' ### ', '# # #']],                     // Space Invaders marcher
+  spinner: [[' /#\\ ', '#o#o#', ' \\#/ ']],                    // Tempest spinner
+  lobber: [[' ### ', '#ooo#', ' ### ', '  ^  ']],             // Missile Command lobber
+  waller: [[' ## ', '#oo#', '#==#']],                         // Tron waller
+  bubbler: [[' () ', '(oo)', ' () ']],                        // Bubble Bobble bubbler
+  otto: [[' :) ', '####', '####']],                           // Berzerk Otto (a grinning bouncer)
+  burner: [['  #  ', ' ### ', '#####', ' ### ']],             // Dragon's Lair flash-burner
+  slinky: [['@']],                                            // prime slinky segment (drawn as a chain)
   bat: [
     ['#   #', '#####', '#o#o#'],
     ['     ', '#####', '#o#o#'],
@@ -863,6 +880,45 @@ function enterRoom(room, fromDir) {
   }
 }
 
+// 21 arcade-homage enemies as archetype + stats (the difficulty knob). Each has a real
+// distinct behavior (archetype AI below); test.js guards every key is consumed. `at` = the
+// depth it starts appearing, `cost` = its DANGER-budget weight, `arch` = its AI archetype.
+const ENEMIES = {
+  grunt: { arch: 'chase', ci: 8, hp: 1, spd: 6, r: 2.2, at: 1, cost: 1, homage: 'Robotron' },
+  ghost: { arch: 'ghost', ci: 8, hp: 2, spd: 7, r: 2.2, at: 2, cost: 2, homage: 'Pac-Man' },
+  hopper: { arch: 'hop', ci: 5, hp: 2, spd: 0, r: 2.0, at: 2, cost: 2, homage: 'Q*bert' },
+  strafer: { arch: 'strafe', ci: 3, hp: 2, spd: 13, r: 2.2, at: 3, cost: 2, homage: 'Defender' },
+  rider: { arch: 'joust', ci: 2, hp: 2, spd: 8, r: 2.4, at: 4, cost: 3, homage: 'Joust' },
+  splitter: { arch: 'split', ci: 1, hp: 2, spd: 4, r: 2.6, at: 3, cost: 2, homage: 'Asteroids' },
+  inflater: { arch: 'chase', ci: 4, hp: 3, spd: 3, r: 2.4, at: 2, cost: 2, homage: 'Dig Dug' },
+  diver: { arch: 'dive', ci: 2, hp: 2, spd: 10, r: 2.2, at: 3, cost: 3, homage: 'Galaga' },
+  marcher: { arch: 'march', ci: 4, hp: 2, spd: 3, r: 2.2, at: 4, cost: 2, homage: 'Space Invaders' },
+  spinner: { arch: 'spin', ci: 6, hp: 3, spd: 6, r: 2.4, at: 5, cost: 3, homage: 'Tempest' },
+  lobber: { arch: 'lob', ci: 7, hp: 3, spd: 2, r: 2.6, at: 4, cost: 3, homage: 'Missile Command' },
+  waller: { arch: 'wall', ci: 6, hp: 3, spd: 7, r: 2.2, at: 5, cost: 3, homage: 'Tron' },
+  bubbler: { arch: 'shoot', ci: 3, hp: 2, spd: 3, r: 2.2, at: 4, cost: 3, homage: 'Bubble Bobble', bubble: true },
+  otto: { arch: 'bounce', ci: 7, hp: 99, spd: 9, r: 2.4, at: 6, cost: 4, homage: 'Berzerk', invuln: true },
+  burner: { arch: 'burn', ci: 7, hp: 4, spd: 0, r: 2.6, at: 5, cost: 3, homage: "Dragon's Lair" },
+  slinky: { arch: 'slink', ci: 5, hp: 5, spd: 8, r: 2.0, at: 3, cost: 4, homage: 'a prime slinky', segments: 8 },
+};
+const ENEMY_KEYS = Object.keys(ENEMIES);
+// small primes drive the slinky's turn rhythm (operator's "random prime generator" spin)
+const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+
+function spawnOne(type, rng, place, room) {
+  const d = ENEMIES[type];
+  const pos = place();
+  const base = { type, arch: d.arch, x: pos.x, y: pos.y, vx: 0, vy: 0, telegraph: 0.7 + rng() * 0.4, flash: 0, kx: 0, ky: 0, state: 'seek', st: 0, ci: d.ci, r: d.r, spd: d.spd * (1 + 0.05 * G.depth) };
+  base.hp = d.invuln ? d.hp : d.hp + Math.floor(G.depth / 3);
+  base.hp0 = base.hp;
+  if (d.bubble) base.bubble = true;
+  if (d.invuln) base.invuln = true;
+  if (type === 'slinky') { base.seg = []; base.primeI = (rng() * PRIMES.length) | 0; base.turnT = 0; base.ang = rng() * Math.PI * 2; for (let s = 0; s < (d.segments); s++) base.seg.push({ x: pos.x, y: pos.y }); }
+  if (d.arch === 'shoot' || d.arch === 'lob' || d.arch === 'march') base.cd = 1 + rng();
+  if (room.mut === 'SWARM') base.hp = Math.max(1, Math.ceil(base.hp / 2));
+  G.enemies.push(base);
+}
+
 function spawnEnemies(room, rng, fromDir) {
   let nDucks = 1 + Math.min(G.depth, 4) + (curse('pluma') ? FX.CURSE_PLUMA : 0);
   let nBats = G.depth >= 2 ? 1 + ((rng() * Math.min(G.depth, 3)) | 0) : 0;
@@ -895,6 +951,21 @@ function spawnEnemies(room, rng, fromDir) {
   for (let i = 0; i < nDucks; i++) mk('duck');
   for (let i = 0; i < nBats; i++) mk('bat');
   for (let i = 0; i < nTurrets; i++) mk('turret');
+
+  // DANGER budget: from depth 2 on, spend a growing budget on the arcade roster, picking
+  // only enemies unlocked by depth. Deeper = more/faster/nastier. Capped by room size.
+  if (G.depth >= 2) {
+    let budget = 2 + G.depth * 1.4;
+    const pool = ENEMY_KEYS.filter(k => ENEMIES[k].at <= G.depth);
+    let guard = 0;
+    while (budget > 0 && pool.length && G.enemies.length < cap + 4 && guard++ < 40) {
+      const k = pool[(rng() * pool.length) | 0];
+      const c = ENEMIES[k].cost;
+      if (c > budget + 1) { budget -= 1; continue; }
+      spawnOne(k, rng, place, room);
+      budget -= c;
+    }
+  }
 }
 
 function spawnPickup(x, y, kind) { G.pickups.push({ x, y, kind, ph: 0 }); }
@@ -1221,6 +1292,15 @@ function killEnemy(e, how = 'melee') {
     }
     G.ordNext++;
   }
+  // SPLITTER halves into two smaller ones (Asteroids) until too small
+  if (e.type === 'splitter' && (e.gen || 0) < 2) {
+    e.dead = true; G.run.kills++; G.floorStats.kills++;
+    for (let s = 0; s < 2; s++) {
+      G.enemies.push({ type: 'splitter', arch: 'split', x: e.x, y: e.y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, telegraph: 0.2, flash: 0, kx: 0, ky: 0, state: 'seek', st: 0, ci: e.ci, r: e.r * 0.7, spd: e.spd * 1.3, hp: 1, hp0: 1, gen: (e.gen || 0) + 1 });
+    }
+    burst(e.x, e.y, e.ci, 12, 18, 0.4); SFX.kill();
+    return;
+  }
   e.dead = true;
   G.run.kills++; G.floorStats.kills++;
   if (how === 'ranged') G.floorStats.rangedKills++;
@@ -1296,6 +1376,106 @@ function roomCleared() {
   const mult = curse('aurum') ? FX.CURSE_AURUM : (boon('aurum') ? FX.BOON_AURUM : 1);
   if (G.rng() < 0.22 * mult) {
     spawnPickup(80 + (G.rng() * 20 - 10), 47 + (G.rng() * 10 - 5), ['heart', 'heart', 'sword', 'boots'][(G.rng() * 4) | 0]);
+  }
+}
+
+// archetype AI for the arcade roster. Sets e.vx/e.vy (shared movement integrates it) and
+// fires projectiles. Every lethal move is telegraphed (windup/aim) to keep F2/F13 honest.
+function arcadeAI(e, dt, dx, dy, d, p) {
+  e.st -= dt;
+  if (e.invuln) e.hp = e.hp0; // Otto cannot be killed, only avoided
+  const toward = () => { e.vx = dx / d * e.spd; e.vy = dy / d * e.spd; };
+  switch (e.arch) {
+    case 'chase': toward(); break;
+    case 'ghost': // scatter <-> chase toggle (Pac)
+      e.ghT = (e.ghT || 0) - dt;
+      if (e.ghT <= 0) { e.scatter = !e.scatter; e.ghT = e.scatter ? 2.2 : 4; }
+      if (e.scatter) { e.vx = -dx / d * e.spd * 0.7; e.vy = -dy / d * e.spd * 0.7; } else toward();
+      break;
+    case 'hop': // discrete leaps toward you (Q*bert)
+      if (e.state !== 'air' && e.st <= 0) { e.state = 'air'; e.st = 0.3; e.hx = dx / d; e.hy = dy / d; }
+      if (e.state === 'air') { e.vx = e.hx * 22; e.vy = e.hy * 22; if (e.st <= 0) { e.state = 'seek'; e.st = 0.5 + Math.random() * 0.4; e.vx = e.vy = 0; } }
+      else { e.vx = e.vy = 0; }
+      break;
+    case 'strafe': // fast horizontal passes (Defender)
+      if (!e.sdir) e.sdir = dx > 0 ? 1 : -1;
+      e.vx = e.sdir * e.spd; e.vy = dy / d * e.spd * 0.25;
+      if (e.x < X0 + 3 || e.x > X1 - 3) e.sdir *= -1;
+      break;
+    case 'joust': // collide-higher-wins (Joust): dips and rises
+      e.vx = dx / d * e.spd; e.vy = dy / d * e.spd + Math.sin(G.t * 4 + e.x) * 4;
+      break;
+    case 'split': toward(); break; // splits on death (handled in killEnemy)
+    case 'dive': // Galaga swoop: hover, telegraph, dive
+      if (e.state === 'seek') { e.vx = Math.sin(G.t * 2 + e.x) * e.spd * 0.4; e.vy = -0.5; if (d < 22 && e.st <= 0) { e.state = 'windup'; e.st = 0.35; } }
+      else if (e.state === 'windup') { e.vx = e.vy = 0; if (e.st <= 0) { e.state = 'lunge'; e.st = 0.4; e.lx = dx / d; e.ly = dy / d; } }
+      else if (e.state === 'lunge') { e.vx = e.lx * e.spd * 2.2; e.vy = e.ly * e.spd * 2.2; if (e.st <= 0) { e.state = 'seek'; e.st = 0.6; } }
+      break;
+    case 'march': // steps in formation + drops bombs (Space Invaders)
+      e.vx = Math.sin(G.t * 1.5) * e.spd; e.vy = e.spd * 0.15;
+      arcadeShoot(e, dt, dx, dy, d, 0.02, false);
+      break;
+    case 'spin': // spirals inward (Tempest)
+      { const a = Math.atan2(dy, dx) + 1.2; e.vx = Math.cos(a) * e.spd + dx / d * e.spd * 0.4; e.vy = Math.sin(a) * e.spd + dy / d * e.spd * 0.4; }
+      break;
+    case 'lob': // arcs bombs onto the arena (Missile Command)
+      e.vx = dx / d * e.spd; e.vy = dy / d * e.spd;
+      arcadeShoot(e, dt, dx, dy, d, 0, true);
+      break;
+    case 'wall': // lays a light-trail wall behind it (Tron)
+      toward();
+      e.wallT = (e.wallT || 0) - dt;
+      if (e.wallT <= 0) { e.wallT = 0.25; G.patches.push({ x: e.x, y: e.y, r: 1.6, t: 3, wall: true }); }
+      break;
+    case 'shoot': arcadeShoot(e, dt, dx, dy, d, 0, false); { const off = d - 20; e.vx = dx / d * e.spd * Math.sign(off); e.vy = dy / d * e.spd * Math.sign(off); } break;
+    case 'bounce': // invulnerable herder (Berzerk Otto)
+      if (!e.bvx) { e.bvx = (Math.random() < 0.5 ? 1 : -1) * e.spd; e.bvy = (Math.random() < 0.5 ? 1 : -1) * e.spd; }
+      e.vx = e.bvx + dx / d * 2; e.vy = e.bvy + dy / d * 2;
+      if (e.x < X0 + 3 || e.x > X1 - 3) e.bvx *= -1;
+      if (e.y < Y0 + 3 || e.y > Y1 - 3) e.bvy *= -1;
+      break;
+    case 'burn': // stationary flash-telegraph danger zone (Dragon's Lair)
+      e.vx = e.vy = 0;
+      if (e.state === 'seek' && d < 18 && e.st <= 0) { e.state = 'windup'; e.st = 0.5; }
+      else if (e.state === 'windup' && e.st <= 0) { e.state = 'burn'; e.st = 0.4; }
+      else if (e.state === 'burn') { if (d < 10 && !p.dashT) hurtPlayer(e); if (e.st <= 0) { e.state = 'seek'; e.st = 1.2; } }
+      break;
+    case 'slink': slinkAI(e, dt, dx, dy, d); break;
+    default: toward();
+  }
+}
+
+// a stationary/slow shooter fires a telegraphed bolt; `lob` bolts arc and burst on landing
+function arcadeShoot(e, dt, dx, dy, d, biasVy, lob) {
+  e.cd -= dt;
+  e.aimT = e.cd <= TURRET_AIM ? Math.max(0, e.cd) : 0; // real-time telegraph
+  if (e.cd <= 0) {
+    e.cd = Math.max(1, 2.2 - 0.1 * G.depth);
+    if (lob) G.booms.push({ spore: false, lobEnemy: true, x: e.x, y: e.y, vx: dx / d * 10, vy: dy / d * 10 - 6, t: 0, back: false, hitCd: {}, dmg: 1, enemyBomb: true });
+    else G.bolts.push({ x: e.x, y: e.y, vx: dx / d * 15, vy: dy / d * 15 + biasVy });
+    e.flash = 0.1; tone(500, 300, 0.06, 'square', 0.05);
+  }
+}
+
+// the prime slinky: a string of segments; it advances, and its SPIN/turn cadence is driven
+// by consecutive prime numbers (operator's "random prime generator"). Coils and whips.
+function slinkAI(e, dt, dx, dy, d) {
+  e.turnT -= dt;
+  if (e.turnT <= 0) {
+    // next prime sets both the turn magnitude and the time until the next turn
+    e.primeI = (e.primeI + 1) % PRIMES.length;
+    const pr = PRIMES[e.primeI];
+    e.ang += (pr % 4 === 3 ? 1 : -1) * (pr / 10); // prime-driven spin
+    e.turnT = 0.15 + (pr % 5) * 0.08;
+  }
+  // drift toward the player but mostly follow the coil heading
+  const head = Math.atan2(dy, dx);
+  e.ang += angDiff(head, e.ang) * dt * 0.6;
+  e.vx = Math.cos(e.ang) * e.spd; e.vy = Math.sin(e.ang) * e.spd;
+  // the tail follows the head, slinky-style
+  if (e.seg) {
+    e.seg.unshift({ x: e.x, y: e.y });
+    e.seg.pop();
   }
 }
 
@@ -1387,6 +1567,12 @@ function updatePlay(dt) {
 
   // boomerangs + spore lobs
   for (const b of G.booms) {
+    if (b.enemyBomb) { // Missile-Command arc from a lobber: gravity, bursts on land/contact
+      b.vy += 22 * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.t += dt;
+      if (Math.hypot(b.x - p.x, b.y - p.y) < 2.4 && p.invulnT <= 0 && p.dashT <= 0) { hurtPlayer(b); b.dead = true; }
+      if (b.t > 0.3 && (solidAt(b.x, b.y) || b.t > 3)) { b.dead = true; burst(b.x, b.y, 7, 12, 16, 0.4); if (Math.hypot(b.x - p.x, b.y - p.y) < 5 && p.invulnT <= 0 && p.dashT <= 0) hurtPlayer(b); }
+      continue;
+    }
     if (b.spore) {
       b.z += b.vz * dt; b.vz -= 26 * dt;
       b.x += b.vx * dt; b.y += b.vy * dt;
@@ -1409,12 +1595,16 @@ function updatePlay(dt) {
     if (b.t > 2.5) { b.dead = true; if (!b.spore) { G.pickups.push({ x: b.x, y: b.y, kind: 'boomerang', slot: true, ph: 0, cd: 0.4 }); p.thrown = false; } }
   }
   G.booms = G.booms.filter(b => !b.dead);
-  // spore vine-patches damage what stands in them
+  // patches: spore vines damage enemies; Tron walls damage the PLAYER (a hazard you laid into)
   for (const pc of G.patches) {
     pc.t -= dt;
-    for (const e of G.enemies) {
-      if (e.telegraph > 0) continue;
-      if (Math.hypot(e.x - pc.x, e.y - pc.y) < pc.r) { e.hp -= 3 * dt; if (e.hp <= 0) killEnemy(e, 'ranged'); }
+    if (pc.wall) {
+      if (Math.hypot(p.x - pc.x, p.y - pc.y) < pc.r + 1 && p.invulnT <= 0 && p.dashT <= 0) hurtPlayer(pc);
+    } else {
+      for (const e of G.enemies) {
+        if (e.telegraph > 0) continue;
+        if (Math.hypot(e.x - pc.x, e.y - pc.y) < pc.r) { e.hp -= 3 * dt; if (e.hp <= 0) killEnemy(e, 'ranged'); }
+      }
     }
   }
   G.patches = G.patches.filter(pc => pc.t > 0);
@@ -1442,7 +1632,9 @@ function updatePlay(dt) {
         continue;
       }
     }
-    if (e.type === 'duck') {
+    // arcade-roster archetypes (set velocity / fire, then fall through to shared movement)
+    if (e.arch && ENEMIES[e.type]) { arcadeAI(e, dt, dx, dy, d, p); }
+    else if (e.type === 'duck') {
       e.st -= dt;
       if (e.state === 'seek') {
         e.vx = dx / d * e.spd; e.vy = dy / d * e.spd;
@@ -2307,9 +2499,17 @@ function drawWorld() {
     }
     let bright = 0.85 * Math.max(0.35, Math.min(1, lv * 1.7));
     if (e.state === 'windup') bright = 0.55 + Math.sin(G.t * 24) * 0.45; // full-depth pulse (never clamps) beats darkness
+    if (e.state === 'burn') bright = 1.4 + Math.sin(G.t * 40) * 0.4; // Dragon's Lair flash
     if (e.flash > 0) bright = 1.6;
-    const frame = ((G.t * 6) | 0) % 2;
-    const spr = SPR[e.type][frame];
+    if (e.invuln) bright *= 0.6 + 0.4 * Math.sin(G.t * 8); // Otto shimmers (can't be killed)
+    // the prime slinky draws as a chain of segments, not a single sprite
+    if (e.type === 'slinky' && e.seg) {
+      e.seg.forEach((s, i) => { const t = i / e.seg.length; px(s.x, s.y, e.ci, (1 - t * 0.6) * bright); if (i % 2) px(s.x + 1, s.y, e.ci, (1 - t) * bright * 0.6); });
+      px(e.x, e.y, 0, bright); // the head
+      continue;
+    }
+    const frames = SPR[e.type] || SPR.grunt;
+    const spr = frames[((G.t * 6) | 0) % frames.length];
     blit(spr, e.x - spr[0].length / 2, e.y - spr.length / 2, e.ci, bright, e.vx > 0.5);
     // the windup draws its OWN reach: a chevron as long as the lunge will actually travel
     if (e.state === 'windup') {
@@ -2388,8 +2588,9 @@ function drawWorld() {
       px(b.x - b.vx * 0.02, b.y - b.vy * 0.02, 5, 0.4);
     }
   }
-  // spore vine-patches: a writhing bramble
+  // patches: spore brambles (green) and Tron light-walls (blue, solid-looking)
   for (const pc of G.patches) {
+    if (pc.wall) { rect(pc.x - pc.r, pc.y - 1, pc.r * 2, 2, 6, Math.min(1, pc.t) * 0.7); px(pc.x, pc.y, 0, 0.5); continue; }
     const a = Math.min(1, pc.t) * Math.min(1, (2 - pc.t) * 2);
     for (let i = 0; i < 22; i++) {
       const ang = i / 22 * Math.PI * 2 + G.t * 0.8, rr = pc.r * (0.4 + 0.5 * ((i * 7) % 10) / 10);

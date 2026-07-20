@@ -120,3 +120,15 @@ last orb the screen frays with red static and the HUD orb pulses. All four gone:
 **The cutscene library.** A brand-new soul opens on the vine cinematic ("THE FIRST
 GROWTH"). Twelve ASCII cutscenes tell the pantheon's story; watch them all from the title
 via [V] — unwatched ones stay hidden as "???" until witnessed.
+
+## The arcade (v7 stage 2) — 16 new enemies, an 80s/90s coin-op homage
+
+Beyond the duck-dragon/bat/turret trio, a **DANGER budget** (scaling with depth) spends on a
+roster of arcade-homage enemies, each a real archetype: GRUNT (Robotron horde), GHOST
+(Pac scatter↔chase), HOPPER (Q*bert leaps), STRAFER (Defender passes), RIDER (Joust),
+SPLITTER (Asteroids — halves on death), INFLATER (Dig Dug), DIVER (Galaga swoop), MARCHER
+(Space Invaders + bombs), SPINNER (Tempest spiral), LOBBER (Missile Command arcs), WALLER
+(Tron light-trail you can't touch), BUBBLER (Bubble Bobble), OTTO (Berzerk — invulnerable
+herder, only avoidable), BURNER (Dragon's Lair flash-zone), and **the PRIME SLINKY** — a
+segmented string-snake whose spin cadence is driven by consecutive prime numbers. Deeper
+floors unlock more, faster, nastier. Every lethal move is telegraphed (F2/F13 honesty holds).
