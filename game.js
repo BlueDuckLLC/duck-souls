@@ -2267,143 +2267,396 @@ function cineVineDraw(t, withText) {
   });
 }
 
+// ---------- v8: PHYSICS-ART KIT (verlet + water) — ascii meets art; motion burns brighter ----------
+function verletKit() {
+  return {
+    feathers: [], petals: [], debris: [], souls: [],
+    water: null, cloth: [],
+  };
+}
+// feathers/petals: flutter-fall with drag + lift oscillation
+function stepFlutter(list, dt, wind, floorY, pile) {
+  for (const f of list) {
+    f.ph += dt * (2 + f.sz);
+    f.vy = Math.min(f.vy + 9 * dt, 6 + f.sz * 3);          // gravity vs drag terminal
+    f.x += (Math.sin(f.ph) * (4 + f.sz * 2) + wind) * dt;   // flutter lift
+    f.y += f.vy * dt * (0.6 + 0.4 * Math.abs(Math.cos(f.ph)));
+    if (f.y >= (pile ? floorY - (pile[f.x | 0] || 0) : floorY)) {
+      if (pile) { pile[f.x | 0] = Math.min(14, (pile[f.x | 0] || 0) + 0.25); }
+      f.y = -2 - Math.random() * 10; f.x = Math.random() * COLS; f.vy = 0;
+    }
+  }
+}
+// 1-D spring-mesh water (the ukiyo-e wave is a real simulation)
+function newWater(n) { return { h: new Float32Array(n).fill(0), v: new Float32Array(n).fill(0), n }; }
+function stepWater(w, dt) {
+  const { h, v, n } = w;
+  for (let i = 0; i < n; i++) {
+    const l = h[i > 0 ? i - 1 : i], r = h[i < n - 1 ? i + 1 : i];
+    v[i] += ((l + r) / 2 - h[i]) * 18 * dt - v[i] * 0.6 * dt;
+  }
+  for (let i = 0; i < n; i++) h[i] += v[i] * dt * 8;
+}
+function splash(w, at, power) { const i = Math.max(1, Math.min(w.n - 2, at | 0)); w.v[i] += power; }
+// verlet chain (souls in MORS's line; swinging vines)
+function stepChain(pts, dt, gx, gy) {
+  for (const p2 of pts) {
+    if (p2.pin) continue;
+    const nx = p2.x + (p2.x - p2.px) * 0.96 + gx * dt * dt, ny = p2.y + (p2.y - p2.py) * 0.96 + gy * dt * dt;
+    p2.px = p2.x; p2.py = p2.y; p2.x = nx; p2.y = ny;
+  }
+  for (let pass = 0; pass < 2; pass++) for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, diff = (d - 2.2) / d / 2;
+    if (!a.pin) { a.x += dx * diff; a.y += dy * diff; }
+    if (!b.pin) { b.x -= dx * diff; b.y -= dy * diff; }
+  }
+}
+
+// ---------- v8: THE CUTSCENES — gods in conversation, Japanese cinema grammar ----------
+// Beat kinds: {bg}, {actor,side}, {exit}, {say,text}, {fx,[text]}. Any key advances a 'say';
+// fx/entrances auto-advance. All 12 available from the start.
+const CAST = {
+  velox: { name: 'VELOX', ci: 3 }, pluma: { name: 'PLUMA', ci: 2 }, umbra: { name: 'UMBRA', ci: 8 },
+  aurum: { name: 'AURUM', ci: 5 }, mors: { name: 'MORS', ci: 1 },
+  sixth: { name: 'THE SIXTH', ci: 7, glitchy: true }, soul: { name: 'A SOUL', ci: 6 },
+  square: { name: 'THE SQUARE', ci: 0 }, door: { name: 'THE DOOR', ci: 1 },
+};
+// extra portraits for the non-god cast
+PORTRAIT.sixth = ['  #####  ', ' ####### ', '## ## ##', ' ####### ', '  #####  ', '   ###   ', '  #   #  '];
+PORTRAIT.soul = ['  ___  ', ' / o \\ ', '<  __/ ', ' \\___\\ ', '  ~ ~  '];
+PORTRAIT.square = ['       ', ' ##### ', ' ##### ', ' ##### ', '       '];
+PORTRAIT.door = [' _____ ', '|     |', '|     |', '|    o|', '|     |', '|_____|'];
+
 const CUTSCENES = [
-  { title: 'THE FIRST GROWTH', dur: 7, draw: t => { cineVineDraw(t, true); A.textC(6, 'in the beginning, something grew', 4, 0.6); } },
   {
-    title: 'THE DROWNING', dur: 7, draw: t => {
-      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
-      const fall = t * 12;
-      for (let i = 0; i < 120; i++) { const fx = (i * 37) % COLS, fy = ((i * 13 + fall) % (ROWS + 20)) - 10; px(fx, fy, 0, 0.4); }
-      const water = ROWS - 6 - Math.max(0, (5 - t)) * 8; // rising tide
-      for (let y = water; y < ROWS; y++) for (let x = 2; x < COLS - 2; x += 1) px(x, y, 6, 0.25 + 0.1 * Math.sin(x * 0.3 + G.t * 3));
-      bigText(80, 30, 'FEATHERS', 1, 0, Math.min(1, t));
-      A.textC(50, 'the kingdom drowned in feathers', 1, Math.min(1, t * 0.5));
-    }
+    title: 'THE FIRST GROWTH', beats: [
+      { bg: 'vine' }, { actor: 'velox', side: 'L' }, { actor: 'mors', side: 'R' },
+      { say: 'velox', text: "It's slow." },
+      { say: 'mors', text: "Everything is, at first. Then it's mine." },
+      { fx: 'ma' },
+      { say: 'velox', text: 'I could make it grow faster.' },
+      { say: 'mors', text: 'You could make it arrive faster. Not the same thing.' },
+      { fx: 'petals' },
+      { say: 'velox', text: '...it bloomed. Did you see that? It BLOOMED.' },
+    ]
   },
   {
-    title: 'THE FIVE REMAIN', dur: 8, draw: t => {
-      plasma(t * 0.1, 0.1, [6, 8, 1]);
-      P.GODS.forEach((g, i) => {
-        if (t < i * 1.2) return;
-        const x0 = 12 + i * 29, port = PORTRAIT[g.id], al = Math.min(1, (t - i * 1.2) * 2);
-        if (al < 1) for (let q = 0; q < 30; q++) px(x0 + Math.random() * 12, 30 + Math.random() * 8, g.ci, Math.random() * 0.5);
-        port.forEach((row, r) => A.text(x0, 28 + r, row, g.ci, al));
-        A.text(x0, 36, g.name, g.ci, al);
-      });
-      A.textC(6, 'five gods remained. they grade what they cannot rule.', 0, Math.min(1, t * 0.4));
-    }
+    title: 'THE DROWNING', beats: [
+      { bg: 'feathers' }, { fx: 'quake' }, { actor: 'pluma', side: 'L' }, { actor: 'aurum', side: 'R' },
+      { say: 'pluma', text: 'The kingdom is drowning in my children\'s down.' },
+      { say: 'aurum', text: 'Yes. Tragic. What would you say a feather GOES for, retail?' },
+      { say: 'pluma', text: 'People are DROWNING, Aurum.' },
+      { say: 'aurum', text: 'In inventory. I weep. I also count.' },
+      { fx: 'slashcut' },
+      { say: 'pluma', text: 'When this is over, there will be five of us. Fewer, if you keep talking.' },
+    ]
   },
   {
-    title: 'THE SQUARE DESCENDS', dur: 7, draw: t => {
-      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
-      for (let i = 0; i < 120; i++) { const a = i * 0.7, d = ((i * 5 + t * 40) % 100); px(80 + Math.cos(a) * d, 45 + Math.sin(a) * d * 0.62, [3, 6, 8][i % 3], Math.min(1, d / 30)); }
-      const sq = 3 + Math.sin(t * 3) * 0.5;
-      rect(80 - sq / 2, 45 - sq / 2, sq, sq, 0, 1);
-      A.textC(60, 'a square descends. it is easier to judge.', 0, Math.min(1, t * 0.5));
-    }
+    title: 'THE FIVE REMAIN', beats: [
+      { bg: 'banners' }, { fx: 'stamp', text: 'COUNCIL' },
+      { actor: 'mors', side: 'R' }, { actor: 'velox', side: 'L' },
+      { say: 'mors', text: 'The kingdom is gone. We cannot rule feathers.' },
+      { say: 'velox', text: 'Then we grade what walks through them. Fast, ideally.' },
+      { say: 'pluma', text: 'My children will test them.' },
+      { say: 'umbra', text: 'I will watch. From here. Do not come closer.' },
+      { say: 'aurum', text: 'And I will handle the... incentives.' },
+      { fx: 'quake' },
+      { say: 'mors', text: 'Then it is agreed. We judge. Forever. All in favor say nothing.' },
+      { fx: 'ma' },
+    ]
   },
   {
-    title: 'DUCK INTO DRAGON', dur: 7, draw: t => {
-      plasma(t * 0.05, 0.06, [2, 7, 1]);
-      const morph = (Math.sin(t * 1.5) + 1) / 2;
-      const spr = morph > 0.5 ? SPR.duck[0] : ['  ####  ', ' #o###\\ ', '<#######', ' #######', ' ##  ## ', ' #    # '];
-      for (let s = 0; s < 6; s++) blit(spr, 76 + Math.sin(G.t + s) * (1 - morph) * 3, 40, morph > 0.5 ? 2 : 7, 1, false), s = 5;
-      A.textC(58, morph > 0.5 ? 'the ducks...' : '...remember being dragons', morph > 0.5 ? 2 : 7, 0.9);
-    }
+    title: 'THE SQUARE DESCENDS', beats: [
+      { bg: 'tunnel' }, { actor: 'umbra', side: 'L' }, { actor: 'mors', side: 'R' },
+      { say: 'umbra', text: 'Something is falling. It has corners.' },
+      { say: 'mors', text: 'Everyone does, eventually.' },
+      { actor: 'square', side: 'C' }, { fx: 'speedlines' },
+      { say: 'umbra', text: 'It is not screaming. Why is it not screaming?' },
+      { say: 'mors', text: 'It will learn. They always learn.' },
+      { say: 'square', text: '...' },
+      { say: 'mors', text: 'See? A natural.' },
+    ]
   },
   {
-    title: "VELOX'S DOOR", dur: 7, draw: t => {
-      plasma(t * 0.04, 0.05, [3, 1]);
-      rect(88, 34, 10, 20, 1, 0.5); // a door
-      const px2 = 70 + Math.min(14, t * 4); // courier approaching, never arriving
-      rect(px2, 46, 3, 3, 3, 1);
-      if (t > 4) A.textC(62, 'he starved at a door that never opened', 3, Math.min(1, (t - 4)));
-      A.textC(8, 'VELOX, god of haste', 3, 0.7);
-    }
+    title: 'DUCK INTO DRAGON', beats: [
+      { bg: 'plasma' }, { actor: 'pluma', side: 'L' }, { fx: 'petals' },
+      { say: 'pluma', text: 'Children. You were ducks. The kingdom laughed.' },
+      { fx: 'quake' }, { fx: 'stamp', text: 'MOLT' },
+      { say: 'pluma', text: 'Grow teeth. Keep the waddle. Let them wonder.' },
+      { actor: 'velox', side: 'R' },
+      { say: 'velox', text: 'They still quack, Pluma.' },
+      { say: 'pluma', text: 'Yes. Now it is a WAR quack.' },
+    ]
   },
   {
-    title: "PLUMA'S BROOD", dur: 7, draw: t => {
-      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
-      for (let i = 0; i < 8; i++) { if (t < i * 0.7) continue; const x = 20 + i * 15, hatch = Math.min(1, (t - i * 0.7)); if (hatch < 0.5) { A.text(x, 44, 'o', 5, 1); } else blit(SPR.duck[0], x - 4, 42, 2, hatch, false); }
-      A.textC(60, 'mother of every duck-dragon', 2, Math.min(1, t * 0.4));
-      A.textC(8, 'PLUMA, the duck-mother', 2, 0.7);
-    }
+    title: "VELOX'S DOOR", beats: [
+      { bg: 'void' }, { actor: 'velox', side: 'L' }, { actor: 'door', side: 'R' },
+      { say: 'velox', text: 'I ran the whole way. I was first. Open.' },
+      { fx: 'ma' },
+      { say: 'velox', text: 'I said OPEN. I have somewhere to be. Everywhere, actually.' },
+      { fx: 'ma' },
+      { say: 'velox', text: '...please.' },
+      { actor: 'mors', side: 'C' },
+      { say: 'mors', text: 'Velox. You can stop knocking now.' },
+      { say: 'velox', text: 'I know. I know that. One more, though.' },
+    ]
   },
   {
-    title: 'UMBRA UNTOUCHED', dur: 6, draw: t => {
-      plasma(t * 0.06, 0.06, [8, 6]);
-      const cx2 = 80, cy2 = 45;
-      for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2, r = 8 + Math.sin(G.t * 3 + i) * 2; px(cx2 + Math.cos(a) * r, cy2 + Math.sin(a) * r * 0.7, 8, 0.6); } // it recoils from everything
-      rect(cx2 - 1, cy2 - 1, 3, 3, 0, 1);
-      A.textC(60, 'never touched by anything. obsessed with your skin.', 8, Math.min(1, t * 0.5));
-      A.textC(8, 'UMBRA, keeper of the untouched', 8, 0.7);
-    }
+    title: "PLUMA'S BROOD", beats: [
+      { bg: 'plasma' }, { actor: 'pluma', side: 'L' }, { actor: 'velox', side: 'R' },
+      { say: 'pluma', text: 'Eight eggs. Eight perfect futures.' },
+      { say: 'velox', text: 'They are taking forever to hatch.' },
+      { say: 'pluma', text: 'They are taking EXACTLY as long as they need.' },
+      { fx: 'quake' }, { fx: 'petals' },
+      { say: 'velox', text: '...that one bit me.' },
+      { say: 'pluma', text: 'She is my favorite now.' },
+    ]
   },
   {
-    title: "AURUM'S SALE", dur: 6, draw: t => {
-      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
-      for (let i = 0; i < 60; i++) { const fx = 20 + (i * 41) % 120, fy = 20 + ((i * 17 + t * 20) % 50); A.text(fx, fy, '$', 5, 0.7); }
-      bigText(80, 30, 'SOLD', 2, 5, Math.min(1, t * 0.6));
-      A.textC(58, 'sold his own temple. then the sixth god.', 5, Math.min(1, t * 0.4));
-      A.textC(8, 'AURUM, the hoarder', 5, 0.7);
-    }
+    title: 'UMBRA UNTOUCHED', beats: [
+      { bg: 'void' }, { actor: 'umbra', side: 'L' }, { fx: 'petals' },
+      { say: 'umbra', text: 'Nothing has ever touched me. Not rain. Not light. Not luck.' },
+      { actor: 'aurum', side: 'R' },
+      { say: 'aurum', text: 'Have you considered gloves? I sell gloves. Barely used.' },
+      { say: 'umbra', text: 'Used by WHOM?' },
+      { say: 'aurum', text: 'That information costs extra.' },
+      { fx: 'slashcut' },
+      { say: 'umbra', text: 'Get. Out. Of. My. Radius.' },
+    ]
   },
   {
-    title: 'MORS WAITS', dur: 8, draw: t => {
-      plasma(t * 0.03, 0.04, [1]);
-      for (let i = 0; i < Math.min(18, t * 3); i++) rect(14 + i * 7, 46, 2, 3, 1, 0.5); // the line of the dead
-      const port = PORTRAIT.mors; port.forEach((row, r) => A.text(130, 42 + r, row, 1, Math.min(1, t * 0.5)));
-      A.textC(62, 'death itself. it grades everyone, eventually.', 1, Math.min(1, t * 0.4));
-      if (t > 5) A.textC(66, '"back so soon?"', 1, Math.min(1, t - 5));
-    }
+    title: "AURUM'S SALE", beats: [
+      { bg: 'void' }, { fx: 'stamp', text: 'SOLD' }, { actor: 'aurum', side: 'L' }, { actor: 'sixth', side: 'R' },
+      { say: 'aurum', text: 'Nothing personal. The margin on gods is extraordinary.' },
+      { say: 'sixth', text: 'WHERE WILL I GO' },
+      { say: 'aurum', text: 'Somewhere deep. Every 3rd floor, I believe. Great foot traffic.' },
+      { say: 'sixth', text: 'THEY WILL FIND ME. YOU KNOW THEY WILL FIND ME.' },
+      { fx: 'quake' },
+      { say: 'aurum', text: 'That is between you and the customers. Pleasure doing business.' },
+      { fx: 'ma' },
+    ]
   },
   {
-    title: 'THE CHALICE', dur: 6, draw: t => {
-      plasma(t * 0.05, 0.05, [5, 8]);
-      blit(SPR.chalice, 78, 38, 5, 1, false);
-      const drain = Math.max(0, 1 - t / 5);
-      for (let y = 0; y < drain * 6; y++) px(80, 40 + y, 6, 0.6); // draining
-      A.textC(58, 'the chalice was full once. ask who drank.', 5, Math.min(1, t * 0.5));
-    }
+    title: 'MORS WAITS', beats: [
+      { bg: 'line' }, { actor: 'mors', side: 'R' }, { actor: 'soul', side: 'L' },
+      { say: 'soul', text: 'Excuse me. How long is the wait? I was mid-quack.' },
+      { say: 'mors', text: 'The line moves. That is all anyone is owed.' },
+      { say: 'soul', text: 'The duck in front of me has been here nine hundred years.' },
+      { say: 'mors', text: 'He keeps letting people go ahead. I admire it. I do not recommend it.' },
+      { fx: 'ma' },
+      { say: 'soul', text: '...can I go ahead of him?' },
+      { say: 'mors', text: 'I like you.' },
+    ]
   },
   {
-    title: 'THE RETURN', dur: 8, draw: t => {
-      S.fillStyle = '#000'; S.fillRect(0, 0, COLS, ROWS);
-      if (t < 3) { bigText(80, 30, 'YOU', 2, 7, Math.min(1, t)); bigText(80, 42, 'DIED', 2, 7, Math.min(1, t - 0.5)); }
-      else if (t < 5.5) { cineVineDraw(t - 3, false); A.textC(40, 'the gods remember you', 4, Math.min(1, t - 3)); }
-      else { for (let i = 0; i < 80; i++) { const a = i * 0.7, d = ((i * 5 + t * 40) % 100); px(80 + Math.cos(a) * d, 45 + Math.sin(a) * d * 0.62, 3, Math.min(1, d / 30)); } A.textC(46, 'descend. be graded. return. again.', 5, Math.min(1, t - 5.5)); }
-    }
+    title: 'THE CHALICE', beats: [
+      { bg: 'wave' }, { actor: 'velox', side: 'L' }, { actor: 'mors', side: 'R' },
+      { say: 'velox', text: 'Everyone thinks I drank it. Because I am fast. FAST IS NOT THIRSTY.' },
+      { say: 'mors', text: 'Velox.' },
+      { say: 'velox', text: 'Ten thousand years of "ask Velox why he runs." I run because I am EXCELLENT.' },
+      { say: 'mors', text: 'Velox. I drank it.' },
+      { fx: 'slashcut' }, { fx: 'ma' },
+      { say: 'velox', text: '...you WHAT.' },
+      { say: 'mors', text: 'I was told it was full of endings. I collect those. It was grape juice.' },
+    ]
+  },
+  {
+    title: 'THE RETURN', beats: [
+      { bg: 'tunnel' }, { actor: 'mors', side: 'R' }, { actor: 'square', side: 'L' },
+      { say: 'mors', text: 'Back again.' },
+      { say: 'square', text: '...' },
+      { say: 'mors', text: 'Floor three this time. The Leviathan sends its regards. And its feathers.' },
+      { say: 'square', text: '...' },
+      { actor: 'velox', side: 'C' },
+      { say: 'velox', text: 'It keeps coming back. Why does it keep coming back?' },
+      { say: 'mors', text: "That's the best thing about it." },
+      { fx: 'petals' }, { fx: 'stamp', text: 'AGAIN' },
+    ]
   },
 ];
 
 function playCine(i, ret) {
   G.cineI = i; G.cineT = 0; G.cineRet = ret || 'gallery';
   G.state = 'cinema';
+  G.cineBeat = -1; G.beatT = 0;
+  G.stage = { bg: 'void', actors: [], phys: verletKit(), pile: {}, saySpeaker: null, sayText: '', sayT: 0, fxUntil: 0, fxKind: null, shear: 0 };
   G.cineSeen = G.cineSeen || loadCine(); G.cineSeen.add(i); saveCine();
+  advanceBeat();
+}
+
+function beatAuto(b) { // non-say beats auto-advance after their duration
+  if (!b) return 0;
+  if (b.say) return 0;
+  if (b.fx === 'ma') return 0.9;
+  if (b.fx === 'slashcut') return 0.8;
+  if (b.fx === 'stamp') return 1.0;
+  if (b.fx === 'quake') return 0.45;
+  if (b.fx === 'speedlines' || b.fx === 'petals') return 0.3;
+  if (b.actor || b.exit) return 0.45;
+  return 0.15; // bg
+}
+
+function advanceBeat() {
+  const sc = CUTSCENES[G.cineI];
+  G.cineBeat++;
+  G.beatT = 0;
+  const b = sc.beats[G.cineBeat];
+  if (!b) return; // scene over; any key exits
+  const st = G.stage;
+  if (b.bg) {
+    st.bg = b.bg;
+    if (b.bg === 'feathers') { st.phys.feathers = []; for (let i = 0; i < 130; i++) st.phys.feathers.push({ x: Math.random() * COLS, y: Math.random() * ROWS, vy: Math.random() * 3, ph: Math.random() * 6, sz: Math.random() }); st.pile = {}; }
+    if (b.bg === 'wave') { st.phys.water = newWater(COLS); for (let i = 0; i < 4; i++) splash(st.phys.water, 20 + i * 35, 14); }
+    if (b.bg === 'line') { st.phys.souls = []; for (let i = 0; i < 16; i++) st.phys.souls.push({ x: 10 + i * 8, y: 62, px: 10 + i * 8, py: 62, pin: i === 0 }); }
+    if (b.bg === 'banners') { st.phys.cloth = []; for (let bn = 0; bn < 5; bn++) { const c = []; for (let r = 0; r < 7; r++) c.push({ x: 24 + bn * 26, y: 8 + r * 2.2, px: 24 + bn * 26, py: 8 + r * 2.2, pin: r === 0 }); st.phys.cloth.push({ pts: c, ci: [3, 2, 8, 5, 1][bn] }); } }
+  }
+  if (b.actor) { st.actors = st.actors.filter(a => a.id !== b.actor); st.actors.push({ id: b.actor, side: b.side || 'L', t: 0 }); if (st.actors.length > 3) st.actors.shift(); }
+  if (b.exit) st.actors = st.actors.filter(a => a.id !== b.exit);
+  if (b.say) { st.saySpeaker = b.say; st.sayText = b.text; st.sayT = 0; }
+  if (b.fx) {
+    st.fxKind = b.fx; st.fxUntil = G.t + beatAuto(b);
+    if (b.fx === 'quake') { G.shake = 5; A.startGlitch(0.7, 0.3, 'pop'); for (const w of (st.phys.water ? [st.phys.water] : [])) splash(w, Math.random() * COLS, 25); tone(70, 40, 0.4, 'sawtooth', 0.14); }
+    if (b.fx === 'slashcut') { A.startGlitch(1, 0.5, 'shear'); tone(1800, 200, 0.3, 'sawtooth', 0.1); G.shake = 4; }
+    if (b.fx === 'stamp') { st.stampText = b.text || CUTSCENES[G.cineI].title.split(' ')[0]; G.shake = 4; A.startGlitch(0.6, 0.25, 'chroma'); tone(120, 60, 0.4, 'square', 0.14); }
+    if (b.fx === 'petals') st.petalsOn = !st.petalsOn ? true : true;
+    if (b.fx === 'petals' && !st.phys.petals.length) for (let i = 0; i < 50; i++) st.phys.petals.push({ x: Math.random() * COLS, y: Math.random() * ROWS, vy: Math.random(), ph: Math.random() * 6, sz: Math.random() * 0.5 });
+  }
+}
+
+// big dramatic portrait: 11x7 art rendered as 2x scene pixels through the filter
+function drawBigPortrait(id, cx, cy, ci, al, t) {
+  const port = PORTRAIT[id];
+  if (!port) return;
+  const breathe = Math.sin(G.t * 1.6 + cx) * 0.6;
+  const gl = CAST[id] && CAST[id].glitchy;
+  port.forEach((row, r) => {
+    for (let c = 0; c < row.length; c++) {
+      const ch = row[c];
+      if (ch === ' ') continue;
+      const b = ch === 'o' ? 1 : ch === '#' ? 0.85 : 0.6;
+      const jx = gl ? (Math.random() - 0.5) * 1.2 : 0;
+      rect(cx + (c - row.length / 2) * 2 + jx, cy + (r - port.length / 2) * 2 + breathe, 2, 2, ch === 'o' ? 0 : ci, b * al);
+    }
+  });
 }
 
 function drawCinema(dt) {
-  G.cineT += dt;
-  const c = CUTSCENES[G.cineI];
-  c.draw(G.cineT);
-  A.textC(2, c.title, 0, 0.8);
-  if (G.cineT > c.dur) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- any key -', 5); }
-  else A.textC(86, 'any key skips', 1, 0.35);
+  const sc = CUTSCENES[G.cineI];
+  const st = G.stage;
+  G.cineT += dt; G.beatT += dt;
+  const b = sc.beats[G.cineBeat];
+  // auto-advance non-dialogue beats
+  if (b && !b.say && G.beatT > beatAuto(b)) advanceBeat();
+
+  // ---- background layers ----
+  if (st.bg === 'vine') cineVineDraw(G.cineT, false);
+  else if (st.bg === 'plasma') plasma(G.t * 0.06, 0.1, [6, 8, 2, 1]);
+  else if (st.bg === 'tunnel') { for (let i = 0; i < 90; i++) { const a = i * 0.7, d = ((i * 5 + G.cineT * 30) % 95); px(80 + Math.cos(a) * d, 42 + Math.sin(a) * d * 0.55, [3, 6, 8][i % 3], Math.min(0.8, d / 35)); } }
+  else if (st.bg === 'feathers') {
+    stepFlutter(st.phys.feathers, dt, Math.sin(G.t * 0.4) * 3, 86, st.pile);
+    for (const f of st.phys.feathers) { const v = Math.abs(f.vy) / 6; px(f.x, f.y, 0, 0.25 + v * 0.5); px(f.x + Math.sin(f.ph), f.y, 0, 0.15 + v * 0.3); }
+    for (let x = 0; x < COLS; x++) if (st.pile[x]) rect(x, 86 - st.pile[x], 1, st.pile[x], 0, 0.3); // the drift piles up
+  }
+  else if (st.bg === 'wave') {
+    stepWater(st.phys.water, dt);
+    if (Math.random() < 0.03) splash(st.phys.water, Math.random() * COLS, 10);
+    const base = 62;
+    for (let x = 0; x < COLS; x++) {
+      const h = st.phys.water.h[x];
+      const top = base - 8 - h;
+      for (let y = top; y < ROWS - 2; y += 1.5) px(x, y, 6, 0.2 + Math.max(0, (h + 8) / 30));
+      const spd = Math.abs(st.phys.water.v[x]);
+      if (spd > 3) px(x, top - 1, 0, Math.min(1, spd / 10)); // foam burns brighter with velocity
+    }
+  }
+  else if (st.bg === 'line') {
+    // the queue of the dead: a verlet chain shuffling forward
+    const souls = st.phys.souls;
+    souls[0].x = 12 + Math.sin(G.t * 0.5) * 2;
+    stepChain(souls, dt, 0, 2);
+    souls.forEach((s2, i) => { px(s2.x, s2.y, 6, 0.5 - i * 0.02); px(s2.x, s2.y - 1, 6, 0.35 - i * 0.02); if (i % 3 === 0) px(s2.x + 1, s2.y, 6, 0.2); });
+  }
+  else if (st.bg === 'banners') {
+    plasma(G.t * 0.04, 0.05, [1]);
+    for (const cl of st.phys.cloth) {
+      stepChain(cl.pts, dt, Math.sin(G.t * 0.8 + cl.pts[0].x) * 6, 4);
+      cl.pts.forEach((p2, i) => { rect(p2.x - 1.5, p2.y, 3, 1.6, cl.ci, 0.5 - i * 0.03); });
+    }
+  }
+
+  // ---- persistent petal layer (sakura / feather-down) ----
+  if (st.petalsOn) {
+    stepFlutter(st.phys.petals, dt, Math.sin(G.t * 0.3) * 5, ROWS - 2, null);
+    for (const f of st.phys.petals) px(f.x, f.y, 8, 0.3 + Math.abs(f.vy) * 0.06);
+  }
+
+  // ---- actors ----
+  for (const a of st.actors) {
+    a.t += dt;
+    const slide = Math.min(1, a.t * 3);
+    const tx = a.side === 'L' ? 30 : a.side === 'R' ? COLS - 30 : 80;
+    const fromX = a.side === 'L' ? -20 : a.side === 'R' ? COLS + 20 : 80;
+    const x = fromX + (tx - fromX) * (1 - Math.pow(1 - slide, 3)); // ease-out entrance
+    drawBigPortrait(a.id, x, 34, CAST[a.id].ci, Math.min(1, a.t * 2.5), a.t);
+    // speaking actor glows
+    if (st.saySpeaker === a.id && b && b.say) px(x, 20, 5, 0.6 + 0.4 * Math.sin(G.t * 6));
+  }
+
+  // ---- fx layers ----
+  if (st.fxKind === 'speedlines' && G.t < st.fxUntil + 0.4) {
+    for (let i = 0; i < 24; i++) { const y = (i * 37) % ROWS; const len = 20 + (i * 13) % 30; const x0 = ((G.t * 300 + i * 53) % (COLS + len)) - len; for (let k = 0; k < len; k += 2) px(x0 + k, y, 0, 0.2 + k / len * 0.4); }
+  }
+  if (st.fxKind === 'slashcut' && G.t < st.fxUntil) {
+    const k = 1 - (st.fxUntil - G.t) / 0.8;
+    for (let i = 0; i < COLS * k; i++) px(i, ROWS - (i / COLS) * ROWS, 0, 1); // the diagonal
+  }
+  if (st.fxKind === 'stamp' && G.t < st.fxUntil + 0.6 && st.stampText) {
+    // kabuki name-card: vertical letters slam in on the right
+    const letters = st.stampText.split('');
+    letters.forEach((ch, i) => {
+      bigText(COLS - 12, 10 + i * 13, ch, 2, 7, Math.min(1, (G.t - (st.fxUntil - 1.0)) * 4 - i * 0.15));
+    });
+    rect(COLS - 19, 6, 14, letters.length * 13 + 4, 7, 0.08);
+  }
+
+  // ---- dialogue box (JRPG grammar) ----
+  if (b && b.say) {
+    st.sayT += dt;
+    const who = CAST[b.say];
+    // box: dark panel with a bordered frame
+    S.globalAlpha = 0.82; S.fillStyle = '#000'; S.fillRect(14, 72, COLS - 28, 15);
+    for (let x = 14; x < COLS - 14; x++) { px(x, 72, who.ci, 0.5); px(x, 86, who.ci, 0.5); }
+    for (let y = 72; y <= 86; y++) { px(14, y, who.ci, 0.5); px(COLS - 15, y, who.ci, 0.5); }
+    A.text(18, 74, '[ ' + who.name + ' ]', who.ci, 1);
+    // typewriter body, wrapped at 118 chars over 2 lines
+    const full = b.text;
+    const n = Math.min(full.length, Math.floor(st.sayT * (CAST[b.say].glitchy ? 18 : 34)));
+    const shown = full.slice(0, n);
+    const l1 = shown.slice(0, 118), l2 = shown.slice(118);
+    A.text(20, 78, CAST[b.say].glitchy && Math.random() < 0.2 ? l1.split('').map(c => Math.random() < 0.1 ? '#' : c).join('') : l1, 0, 0.95);
+    if (l2) A.text(20, 80, l2, 0, 0.95);
+    if (n >= full.length && ((G.t * 2) | 0) % 2 === 0) A.text(COLS - 20, 84, 'v', 5, 1); // advance cursor
+  }
+
+  A.textC(2, sc.title, 0, 0.7);
+  if (!b) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- any key -', 5); }
+  else if (!b.say) A.textC(88, 'ESC: leave', 1, 0.25);
 }
 
 function drawGallery(dt) {
   plasma(G.t * 0.05, 0.08, [6, 8, 1]);
   G.cineSeen = G.cineSeen || loadCine();
   A.textC(6, 'THE CUTSCENE LIBRARY', 0);
-  A.textC(8, G.cineSeen.size + ' / 12 witnessed   -   number keys to watch, any other to leave', 1, 0.7);
+  A.textC(8, 'all twelve, always — number keys to watch, any other to leave', 1, 0.7);
   CUTSCENES.forEach((c, i) => {
     const col = i % 2, row = (i / 2) | 0;
     const x = 20 + col * 62, y = 14 + row * 5;
     const seen = G.cineSeen.has(i);
-    const label = (i + 1).toString().padStart(2, ' ') + '. ' + (seen ? c.title : '???  (unwatched)');
-    A.text(x, y, label, seen ? (i % 5) + 2 : 1, seen ? 0.9 : 0.4);
+    const label = (i + 1).toString().padStart(2, ' ') + '. ' + c.title + (seen ? '  *' : '');
+    A.text(x, y, label, (i % 5) + 2, seen ? 1 : 0.75);
   });
-  A.textC(80, 'the first plays automatically when a new soul begins', 4, 0.5);
+  A.textC(80, '* witnessed — the first plays automatically when a new soul begins', 4, 0.5);
 }
 
 // the credits — a scrolling scene using every animation trick in the box
@@ -2486,10 +2739,20 @@ function onKey(k) {
   if (k === 'c') { useItem(); return; }
   const mod = ['shift', 'meta', 'control', 'alt'].includes(k);
   if (G.state === 'cinema') {
-    if (!mod && G.cineT > 0.4) {
+    if (mod) return;
+    const sc = CUTSCENES[G.cineI], b = sc.beats[G.cineBeat];
+    const leave = () => {
       if (G.cineRet === 'intro-chain') { G.state = 'intro'; G.introT = 0; }
       else { G.state = G.cineRet || 'gallery'; if (G.state === 'gallery') G.galT = 0; }
+    };
+    if (k === 'escape') { leave(); return; }
+    if (!b) { if (G.beatT > 0.2) leave(); return; } // scene over
+    if (b.say) {
+      const need = b.text.length / (CAST[b.say].glitchy ? 18 : 34);
+      if (G.stage.sayT < need) G.stage.sayT = need + 1; // first press: finish the line
+      else advanceBeat();                              // second: next beat
     }
+    // fx/ma beats ignore input (the dramatic pause holds)
     return;
   }
   if (G.state === 'gallery') {
