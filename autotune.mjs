@@ -93,7 +93,31 @@ function seedSet(n, base) { return Array.from({ length: n }, (_, i) => base * 79
 function loadDefaults() {
   return eval('(' + fs.readFileSync(HERE + 'params.js', 'utf8').match(/const DEFAULTS = (\{[\s\S]*?\n  \});/)[1] + ')');
 }
+
+// --eval: evaluate the CURRENT working tree (params.js as-is + any applied code patch) over K
+// sessions on two independent seed-sets. Prints JSON {funProxy, funGreen, holdout, metrics}.
+// This is the AI-scientist proposer's verifier — the LLM applies a candidate, then calls this.
+async function evalMode() {
+  const P = loadDefaults();
+  const T = P.autotune.target, W = P.autotune.weights;
+  const browser = await puppeteer.launch({ headless: 'new', args: ['--no-sandbox'] });
+  const m1 = await evalCandidate(browser, P, seedSet(SESSIONS, 1));
+  const m2 = await evalCandidate(browser, P, seedSet(SESSIONS, 2)); // holdout sample
+  await browser.close();
+  const s1 = funProxy(m1, W, T), s2 = funProxy(m2, W, T);
+  const out = {
+    funProxy: +((s1 + s2) / 2).toFixed(3),
+    proposeProxy: +s1.toFixed(3), holdoutProxy: +s2.toFixed(3),
+    funGreen: m1.funGreen && m2.funGreen,
+    holdout: (m2.funGreen && Math.abs(s2 - s1) < 0.5) ? 'PASS' : 'FAIL', // gain must persist on fresh seeds
+    metrics: { avgFloor: +((m1.avgFloor + m2.avgFloor) / 2).toFixed(1), novelPerMin: +((m1.novelPerMin + m2.novelPerMin) / 2).toFixed(1), decisionPct: +(((m1.decisionPct + m2.decisionPct) / 2) * 100).toFixed(0), variety: Math.max(m1.variety, m2.variety), telegraphPct: +(((m1.telegraphPct + m2.telegraphPct) / 2) * 100).toFixed(0), deathsPerRun: +((m1.deathsPerRun + m2.deathsPerRun) / 2).toFixed(1) },
+  };
+  console.log(JSON.stringify(out, null, 2));
+  process.exit(0);
+}
+
 async function main() {
+  if (args.includes('--eval')) return evalMode();
   const P = loadDefaults();
   const T = P.autotune.target, W = P.autotune.weights;
   const proposeSeeds = seedSet(SESSIONS, 1), holdoutSeeds = seedSet(SESSIONS, 2);
