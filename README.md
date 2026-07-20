@@ -34,14 +34,27 @@ Favor persists across runs in localStorage. An advertised effect is a real effec
 finite, monotonic, and that every boon/curse key is consumed by `game.js` — no no-op
 upgrades, ever again.
 
-## The rooms are wrong
+## The rooms are wrong (15 ways)
 
-Each floor, ~half the rooms roll a heuristic, announced on entry and worn in the HUD:
-LOW GRAVITY (inertial drift, floating knockback), SIDEWAYS GRAVITY (the room pulls — watch
-the motes), PITCH DARK (tiny torch + a flashlight cone; the unseen render as faint static,
-but telegraphs stay honest), BAD WIRING (the lights brown out), HASTE (everything 1.4x),
-MOLASSES (everything 0.7x except dash — dash is king), THE SWARM (2x enemies, half HP),
-RUBBER (knockback tripled, walls bounce). All mechanical, all covered by the no-op guard.
+Each floor, ~half the rooms roll a heuristic, announced on entry and worn in the HUD.
+The original eight: LOW GRAVITY, SIDEWAYS GRAVITY, PITCH DARK (flashlight cone), BAD
+WIRING, HASTE, MOLASSES (slow except dash), THE SWARM, RUBBER (walls bounce). The Zelda
+seven, mined by a two-seat design team from LoZ/LttP/OoT dungeons: **IRONFRONT** (Darknut —
+iron faces block frontal hits, flank with the dash), **THE WOODS** (Lost Woods — no edges,
+the screen wraps toroidally), **THE ORDER** (numbered deaths; kill out of turn and the
+death is refused: "no."), **PHASE** (Wizzrobe — enemies blink elsewhere behind a shimmer
+telegraph), **THE HUNGRY ONE** (Like Like — it swallows your held item; cut it open within
+6s), **THE FOUNTAIN** (fairy water heals whoever stands in it, ducks included), **THE
+TOLL** ("it's a secret to everybody" — an old duck sells goods priced in YOUR SCORE;
+touch what you can't afford and he screams THIEF). All mechanical, all no-op-guarded.
+
+## Zelda in the bones
+
+Cuttable **grass** in every room (slash a tuft: score motes, rarely a heart — max one
+heart per floor, grass never regrows). A **heart piece** hides on every floor — four
+quarters assemble into +1 max HP, twice per run at most. The **lantern dowses**: it
+flickers and ticks when a secret is in the room. Score is live on the HUD because at the
+TOLL it is also your wallet — AURUM grades circulation, not thrift.
 
 ## The objects want things from you
 

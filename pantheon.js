@@ -77,9 +77,11 @@
       boon: { key: 'BOON_AURUM', desc: 'better drops on room clear' },
       curse: { key: 'CURSE_AURUM', desc: 'no drops for you' },
       score(f) {
-        return clamp01(f.pickups * 0.3 + f.treasureFound * 0.4 + (f.chestsOpened || 0) * 0.4 + (f.chaliceDelivered || 0) * 0.5);
+        // the Hoarder loves harvest AND circulation — spending is still touching gold
+        return clamp01(f.pickups * 0.3 + f.treasureFound * 0.4 + (f.chestsOpened || 0) * 0.4
+          + (f.chaliceDelivered || 0) * 0.5 + Math.min(0.4, (f.spent || 0) / 300) + (f.tuftsCut || 0) * 0.03);
       },
-      stat(f) { return `${f.pickups} taken / ${f.chestsOpened || 0} chest / ${f.treasureFound} vault`; },
+      stat(f) { return `${f.pickups} taken / ${f.spent || 0} spent / ${f.tuftsCut || 0} cut`; },
       lines: {
         S: 'Yes. Take EVERYTHING.', A: 'A healthy appetite.',
         B: 'You left things on the floor. On the FLOOR.', C: 'Poverty is a choice you keep making.',
@@ -168,6 +170,9 @@
     { id: 'chest', when: l => (l.totalChests || 0) >= 1, text: 'The chest never wanted the key. It wanted company.' },
     { id: 'chalice', when: l => (l.totalChalices || 0) >= 1, text: 'The chalice was full once. Ask VELOX why he runs. Ask MORS who drank.' },
     { id: 'bat', when: l => (l.totalStolen || 0) >= 1, text: 'The bat serves no god. That is why it is free, and why it is hungry.' },
+    { id: 'grass', when: l => (l.totalTufts || 0) >= 20, text: 'The grass remembers being a kingdom\'s feathers. Cut it anyway.' },
+    { id: 'toll', when: l => (l.totalSpent || 0) >= 1, text: 'The old duck sells what the dead no longer need. To the dead.' },
+    { id: 'pieces', when: l => (l.totalPieces || 0) >= 4, text: 'Four pieces, because no heart survives whole down here.' },
   ];
   function unlockedLore(l) {
     return LORE.filter(f => { try { return !!f.when(l); } catch (e) { return false; } });

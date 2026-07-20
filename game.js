@@ -38,8 +38,28 @@ const MUT = {
   MOLASSES: { name: 'MOLASSES', ci: 4, desc: 'everything is slow except your dash.' },
   SWARM: { name: 'THE SWARM', ci: 7, desc: 'twice as many. half as sturdy.' },
   RUBBER: { name: 'RUBBER', ci: 0, desc: 'every hit is a launch. walls bounce.' },
+  // the Zelda seven (v4)
+  IRONFRONT: { name: 'IRONFRONT', ci: 1, desc: 'their faces are iron. go around.' },
+  WOODS: { name: 'THE WOODS', ci: 4, desc: 'the edges lie. the room repeats into itself.' },
+  ORDER: { name: 'THE ORDER', ci: 5, desc: 'numbered deaths. count, or repeat.' },
+  PHASE: { name: 'PHASE', ci: 6, desc: 'they are not where they were.' },
+  HUNGRY: { name: 'THE HUNGRY ONE', ci: 8, desc: 'it wants what you carry. kill it before it swallows.' },
+  FOUNTAIN: { name: 'THE FOUNTAIN', ci: 3, desc: 'the water heals whoever stands in it. whoever.' },
+  TOLL: { name: 'THE TOLL', ci: 2, desc: 'it is a secret to everybody. score is rupees here.' },
 };
 const mut = key => G.cur && G.cur.mut === key;
+const liveScore = () => G.run ? G.run.floors * 100 + G.run.kills * 10 + (G.run.bonus || 0) : 0;
+// angle helpers for iron faces that track you with a lag (so flanking works)
+const angDiff = (a, b) => { let d = a - b; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return d; };
+function ironBlocked(e, ax, ay) {
+  if (!mut('IRONFRONT') || e.faceA === undefined) return false;
+  const d = Math.hypot(ax - e.x, ay - e.y) || 1;
+  return ((ax - e.x) / d) * Math.cos(e.faceA) + ((ay - e.y) / d) * Math.sin(e.faceA) > 0.45;
+}
+function clink(e) {
+  burst(e.x + Math.cos(e.faceA) * 3, e.y + Math.sin(e.faceA) * 2.5, 0, 5, 10, 0.25);
+  tone(1500, 900, 0.05, 'square', 0.06);
+}
 // held-item glyphs for HUD + floor rendering
 const ITEMS = {
   gun: { label: 'GUN', hint: 'C fires', ci: 0 },
@@ -233,7 +253,7 @@ function loadFavor() {
   return P.defaultFavor();
 }
 function loadLedger() {
-  const d = { runs: 0, deaths: 0, totalKills: 0, deepest: 0, bestScore: 0, floor1Deaths: 0, totalHotdogs: 0, totalChests: 0, totalChalices: 0, totalStolen: 0, lastRuns: [] };
+  const d = { runs: 0, deaths: 0, totalKills: 0, deepest: 0, bestScore: 0, floor1Deaths: 0, totalHotdogs: 0, totalChests: 0, totalChalices: 0, totalStolen: 0, totalTufts: 0, totalSpent: 0, totalPieces: 0, lastRuns: [] };
   try { const l = JSON.parse(localStorage.getItem(LS_LEDGER)); if (l && l.runs !== undefined) return { ...d, ...l }; } catch (e) { }
   return d;
 }
@@ -341,7 +361,7 @@ function newRun() {
   };
   G.pbolts = []; G.stars = []; G.bat = null;
   G.morsUsed = false;
-  G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0, bonus: 0, hotdogs: 0, chests: 0, chalices: 0, stolen: 0 };
+  G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0, bonus: 0, hotdogs: 0, chests: 0, chalices: 0, stolen: 0, tufts: 0, spent: 0, pieces: 0 };
   G.state = 'play';
   genFloor();
 }
@@ -351,6 +371,7 @@ function foldFloor() {
   const f = G.floorStats, r = G.run;
   r.hotdogs += f.hotdogsEaten; r.chests += f.chestsOpened;
   r.chalices += f.chaliceDelivered; r.stolen += f.itemsStolen;
+  r.tufts += f.tuftsCut; r.spent += f.spent;
 }
 
 function floorStatsInit(roomCount) {
@@ -358,6 +379,7 @@ function floorStatsInit(roomCount) {
     time: 0, roomCount, kills: 0, interrupts: 0, dmgTaken: 0, dashThroughs: 0,
     pickups: 0, treasureFound: 0, idleT: 0, depth: G.depth,
     rangedKills: 0, chestsOpened: 0, hotdogsEaten: 0, chaliceDelivered: 0, itemsStolen: 0,
+    tuftsCut: 0, spent: 0, heartPieces: 0,
   };
 }
 
@@ -429,6 +451,12 @@ function genFloor() {
     const [gx, gy] = spot(cr);
     cr.items.push({ x: gx, y: gy, kind: 'chalice', slot: true, ph: 0 });
   }
+  // a heart piece hides on every floor (4 quarters -> +1 max HP, capped at +2/run)
+  if ((G.run.pieces || 0) < 8) {
+    const prs = [...rooms.values()].filter(r => r.type !== 'start');
+    const prm = prs[(rng() * prs.length) | 0];
+    if (prm) { const [hx, hy] = spot(prm); prm.piece = { x: hx, y: hy }; }
+  }
   G.rooms = rooms;
   G.floorStats = floorStatsInit(rooms.size);
   G.player.x = 80; G.player.y = 47;
@@ -440,8 +468,9 @@ function enterRoom(room, fromDir) {
   G.cur = room;
   G.enemies = []; G.bolts = []; G.parts = G.parts || [];
   G.pickups = room.items || (room.items = []); // persistent: dropped items stay put
-  G.pbolts = []; G.stars = []; G.bat = null;
+  G.pbolts = []; G.stars = []; G.bat = null; G.hungry = null; G.pool = null; G.ordNext = 1;
   G.doorOpenAt = 0;
+  const woods = room.mut === 'WOODS'; // Lost Woods: no edge walls, the screen wraps
   const rng = mulberry32(room.seed);
   // walls + pillars
   const solid = new Uint8Array(COLS * ROWS);
@@ -450,13 +479,15 @@ function enterRoom(room, fromDir) {
     const mid = side === 'n' || side === 's' ? (X0 + X1) / 2 : (Y0 + Y1) / 2;
     return Math.abs(i - mid) <= DOOR / 2;
   };
-  for (let x = X0; x <= X1; x++) {
-    if (!(room.doors.n && doorAt('n', x))) { solid[Y0 * COLS + x] = 1; walls.push([x, Y0]); }
-    if (!(room.doors.s && doorAt('s', x))) { solid[Y1 * COLS + x] = 1; walls.push([x, Y1]); }
-  }
-  for (let y = Y0; y <= Y1; y++) {
-    if (!(room.doors.w && doorAt('w', y))) { solid[y * COLS + X0] = 1; walls.push([X0, y]); }
-    if (!(room.doors.e && doorAt('e', y))) { solid[y * COLS + X1] = 1; walls.push([X1, y]); }
+  if (!woods) {
+    for (let x = X0; x <= X1; x++) {
+      if (!(room.doors.n && doorAt('n', x))) { solid[Y0 * COLS + x] = 1; walls.push([x, Y0]); }
+      if (!(room.doors.s && doorAt('s', x))) { solid[Y1 * COLS + x] = 1; walls.push([x, Y1]); }
+    }
+    for (let y = Y0; y <= Y1; y++) {
+      if (!(room.doors.w && doorAt('w', y))) { solid[y * COLS + X0] = 1; walls.push([X0, y]); }
+      if (!(room.doors.e && doorAt('e', y))) { solid[y * COLS + X1] = 1; walls.push([X1, y]); }
+    }
   }
   // door bar cells (solid while room hot)
   const bars = [];
@@ -491,12 +522,45 @@ function enterRoom(room, fromDir) {
   }
   room.entered = true;
 
+  // cuttable grass: every room grows a little; it does not grow back
+  if (!room.tufts) {
+    room.tufts = [];
+    const n = 10 + ((rng() * 9) | 0);
+    for (let i = 0; i < n; i++) {
+      const tx = X0 + 4 + rng() * (X1 - X0 - 8), ty = Y0 + 4 + rng() * (Y1 - Y0 - 8);
+      if (!solid[(ty | 0) * COLS + (tx | 0)]) room.tufts.push({ x: tx, y: ty });
+    }
+  }
+
+  // THE TOLL: an old duck and his prices instead of a fight
+  if (room.mut === 'TOLL' && !room.spawned) {
+    room.spawned = true; room.cleared = true;
+    const wares = [['hotdog', 80], ['heart', 60], ['star', 90], ['lantern', 70], ['gun', 120], ['sword', 150]];
+    room.goods = [];
+    for (let i = 0; i < 2; i++) {
+      const [k, base] = wares.splice((rng() * wares.length) | 0, 1)[0];
+      room.goods.push({ x: 70 + i * 20, y: 50, kind: k, price: Math.round(base * (1 + 0.15 * G.depth)) });
+    }
+    room.merchant = { x: 80, y: 42 };
+  }
+
   if (!room.spawned) {
     room.spawned = true;
     spawnEnemies(room, rng, fromDir);
   }
+  // THE ORDER: numbered deaths
+  if (room.mut === 'ORDER' && G.enemies.length) {
+    G.enemies.forEach((e, i) => { e.ord = i + 1; });
+    G.ordNext = 1;
+  }
+  // THE FOUNTAIN: contested water
+  if (room.mut === 'FOUNTAIN') G.pool = { x: 80, y: 47, r: 7 };
+  // THE HUNGRY ONE (never shares a room with the bat)
+  if (room.mut === 'HUNGRY' && !room.cleared) {
+    G.hungry = { x: X0 + 6, y: Y0 + 6, hp: 5, r: 3.2, swallowed: null, digestT: 0, ph: 0 };
+  }
   G.locked = !room.cleared && G.enemies.length > 0;
-  if (G.locked) for (const [x, y] of G.bars) G.solid[y * COLS + x] = 1;
+  if (G.locked && !woods) for (const [x, y] of G.bars) G.solid[y * COLS + x] = 1;
 
   // dust motes: ambient drift, or wind-driven under SIDEWAYS GRAVITY
   G.windDir = null;
@@ -511,8 +575,8 @@ function enterRoom(room, fromDir) {
       vx: (rng() - 0.5) * 1.5, vy: (rng() - 0.5) * 1.5,
     });
   }
-  // Adventure's item-stealing bat
-  if (G.depth >= 2 && room.type === 'fight' && rng() < 0.2) {
+  // Adventure's item-stealing bat (the Hungry One hunts alone)
+  if (G.depth >= 2 && room.type === 'fight' && room.mut !== 'HUNGRY' && rng() < 0.2) {
     G.bat = { x: rng() < 0.5 ? X0 + 2 : X1 - 2, y: Y0 + 6 + rng() * 20, ph: rng() * 6, carrying: null, hp: 1, leaveT: 9 };
   }
   // announce the room's wrongness
@@ -547,6 +611,7 @@ function spawnEnemies(room, rng, fromDir) {
     if (type === 'bat') Object.assign(base, { hp: 1, r: 1.8, spd: 9 + 0.4 * G.depth, ci: 8, ph: rng() * 6 });
     if (type === 'turret') Object.assign(base, { hp: 4, r: 2.6, spd: 0, ci: 4, cd: 1 + rng() });
     if (room.mut === 'SWARM') base.hp = Math.max(1, Math.ceil(base.hp / 2));
+    base.hp0 = base.hp;
     G.enemies.push(base);
   };
   for (let i = 0; i < nDucks; i++) mk('duck');
@@ -558,8 +623,16 @@ function spawnPickup(x, y, kind) { G.pickups.push({ x, y, kind, ph: 0 }); }
 
 // ---------- collision ----------
 function solidAt(x, y) {
-  if (x < X0 || x > X1 || y < Y0 || y > Y1) return true;
+  if (x < X0 || x > X1 || y < Y0 || y > Y1) return !mut('WOODS'); // the woods have no edges
   return G.solid[(y | 0) * COLS + (x | 0)] === 1;
+}
+function wrapWoods(o) {
+  if (!mut('WOODS')) return false;
+  const W = X1 - X0, H = Y1 - Y0;
+  let w = false;
+  if (o.x < X0) { o.x += W; w = true; } else if (o.x > X1) { o.x -= W; w = true; }
+  if (o.y < Y0) { o.y += H; w = true; } else if (o.y > Y1) { o.y -= H; w = true; }
+  return w;
 }
 function tryMove(e, nx, ny, hr) {
   if (!solidAt(nx - hr, e.y - hr) && !solidAt(nx + hr, e.y - hr) && !solidAt(nx - hr, e.y + hr) && !solidAt(nx + hr, e.y + hr)) e.x = nx;
@@ -659,6 +732,7 @@ function die() {
   if (G.run.floors <= 1) led.floor1Deaths++;
   led.totalHotdogs += G.run.hotdogs; led.totalChests += G.run.chests;
   led.totalChalices += G.run.chalices; led.totalStolen += G.run.stolen;
+  led.totalTufts += G.run.tufts; led.totalSpent += G.run.spent; led.totalPieces += G.run.pieces;
   led.lastRuns.unshift({ f: G.run.floors, k: G.run.kills, s: G.run.score });
   led.lastRuns.splice(5);
   const after = P.unlockedLore(led);
@@ -679,12 +753,40 @@ function slash() {
   p.atkCd = 0.22; p.atkT = 0.13;
   SFX.slash();
   let hitAny = false;
+  // cuttable grass: the slash is never wasted
+  if (G.cur.tufts) for (const tf of G.cur.tufts) {
+    const dx = tf.x - p.x, dy = tf.y - p.y, d = Math.hypot(dx, dy);
+    if (d > 8.5 || (dx * p.dir.x + dy * p.dir.y) / (d || 1) < 0.35) continue;
+    tf.dead = true;
+    G.floorStats.tuftsCut++;
+    burst(tf.x, tf.y, 4, 5, 10, 0.35);
+    const roll = Math.random();
+    if (roll < 0.22) { G.run.bonus = (G.run.bonus || 0) + 5; G.parts.push({ x: tf.x, y: tf.y, vx: 0, vy: -6, ci: 5, life: 0.6, t: 0 }); }
+    else if (roll < 0.3 && !G.floorStats.grassHeart) { G.floorStats.grassHeart = true; G.pickups.push({ x: tf.x, y: tf.y, kind: 'heart', ph: 0 }); }
+  }
+  if (G.cur.tufts) G.cur.tufts = G.cur.tufts.filter(tf => !tf.dead);
+  // the Hungry One can be cut open
+  if (G.hungry) {
+    const h = G.hungry;
+    const dx = h.x - p.x, dy = h.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 8.5 && (dx * p.dir.x + dy * p.dir.y) / (d || 1) > 0.35) {
+      h.hp -= st.dmg; hitAny = true;
+      burst(h.x, h.y, 8, 8, 14, 0.4);
+      if (h.hp <= 0) {
+        if (h.swallowed) { G.pickups.push({ x: h.x, y: h.y, kind: h.swallowed.kind, ammo: h.swallowed.ammo, slot: true, ph: 0, cd: 0.5 }); msg('IT SPITS IT OUT', 5, 1.6); }
+        burst(h.x, h.y, 8, 24, 20, 0.7);
+        G.floorStats.kills++; G.run.kills++;
+        G.hungry = null; SFX.kill();
+      }
+    }
+  }
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
     if (d > 8.5) continue;
     const dot = (dx * p.dir.x + dy * p.dir.y) / (d || 1);
     if (dot < 0.35) continue;
+    if (ironBlocked(e, p.x, p.y)) { clink(e); hitAny = true; continue; } // IRONFRONT
     e.hp -= st.dmg; e.flash = 0.15; hitAny = true;
     if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
     e.kx = dx / (d || 1) * 40 * st.kb; e.ky = dy / (d || 1) * 40 * st.kb;
@@ -707,6 +809,22 @@ function slash() {
 }
 
 function killEnemy(e, how = 'melee') {
+  // THE ORDER: die out of turn and the death is refused
+  if (mut('ORDER') && e.ord) {
+    if (e.ord !== G.ordNext) {
+      e.hp = Math.max(1, Math.ceil((e.hp0 || 2) / 2));
+      for (let tries = 0; tries < 30; tries++) {
+        const nx = X0 + 5 + Math.random() * (X1 - X0 - 10), ny = Y0 + 5 + Math.random() * (Y1 - Y0 - 10);
+        if (!G.solid[(ny | 0) * COLS + (nx | 0)]) { e.x = nx; e.y = ny; break; }
+      }
+      e.telegraph = 0.6; e.state = 'seek'; e.st = 0.3;
+      msg('no.', 1, 1.1);
+      A.startGlitch(0.5, 0.2, 'scramble');
+      tone(120, 55, 0.3, 'sawtooth', 0.1);
+      return;
+    }
+    G.ordNext++;
+  }
   e.dead = true;
   G.run.kills++; G.floorStats.kills++;
   if (how === 'ranged') G.floorStats.rangedKills++;
@@ -775,6 +893,8 @@ function updatePlay(dt) {
     if (p.x === preX && Math.abs(vx + p.kx) > 6) { p.kx = -(p.kx + vx * 0.5) * 0.8; p.ivx = -p.ivx; }
     if (p.y === preY && Math.abs(vy + p.ky) > 6) { p.ky = -(p.ky + vy * 0.5) * 0.8; p.ivy = -p.ivy; }
   }
+  G.wrapCd = Math.max(0, (G.wrapCd || 0) - dt);
+  if (wrapWoods(p)) { A.startGlitch(0.4, 0.12, 'shear'); G.wrapCd = 0.45; } // through the seam; don't chain into a door
   p.invulnT -= dt; p.atkCd -= dt; p.atkT -= dt;
   if (p.digestT > 0) p.digestT -= dt;
 
@@ -786,6 +906,23 @@ function updatePlay(dt) {
     e.flash -= dt;
     e.kx = (e.kx || 0) * Math.pow(0.001, dt); e.ky = (e.ky || 0) * Math.pow(0.001, dt);
     const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
+    // iron faces track you with a lag — dash around them
+    const ta = Math.atan2(dy, dx);
+    e.faceA = e.faceA === undefined ? ta : e.faceA + angDiff(ta, e.faceA) * Math.min(1, dt * 1.8);
+    // PHASE: blink out, shimmer in elsewhere
+    if (mut('PHASE')) {
+      e.phaseT = (e.phaseT === undefined ? 1 + Math.random() : e.phaseT) - dt;
+      if (e.phaseT <= 0) {
+        burst(e.x, e.y, e.ci, 8, 14, 0.3);
+        for (let tries = 0; tries < 30; tries++) {
+          const nx = X0 + 5 + Math.random() * (X1 - X0 - 10), ny = Y0 + 5 + Math.random() * (Y1 - Y0 - 10);
+          if (!G.solid[(ny | 0) * COLS + (nx | 0)]) { e.x = nx; e.y = ny; break; }
+        }
+        e.telegraph = 0.45; e.state = 'seek'; e.st = 0.2;
+        e.phaseT = 1.6 + Math.random() * 0.8;
+        continue;
+      }
+    }
     if (e.type === 'duck') {
       e.st -= dt;
       if (e.state === 'seek') {
@@ -822,6 +959,7 @@ function updatePlay(dt) {
     }
     const wfx = G.windDir ? G.windDir[0] * 6 : 0, wfy = G.windDir ? G.windDir[1] * 6 : 0;
     tryMove(e, e.x + (e.vx * st.ts + e.kx + wfx) * dt, e.y + (e.vy * st.ts + e.ky + wfy) * dt, e.type === 'bat' ? 0.8 : 1.6);
+    wrapWoods(e);
     if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + 1.4) hurtPlayer(e);
   }
   // enemy separation
@@ -847,6 +985,7 @@ function updatePlay(dt) {
   // bolts
   for (const b of G.bolts) {
     b.x += b.vx * dt; b.y += b.vy * dt;
+    if (mut('WOODS')) { wrapWoods(b); b.life = (b.life === undefined ? 2.5 : b.life) - dt; if (b.life <= 0) b.dead = true; }
     if (solidAt(b.x, b.y)) b.dead = true;
     else if (Math.hypot(b.x - p.x, b.y - p.y) < 1.8) { hurtPlayer(b); b.dead = true; }
   }
@@ -855,10 +994,21 @@ function updatePlay(dt) {
   // player bullets (gun) — ranged kills are recorded; PLUMA is watching
   for (const b of G.pbolts) {
     b.x += b.vx * dt; b.y += b.vy * dt;
+    if (mut('WOODS')) { wrapWoods(b); b.life = (b.life === undefined ? 1.5 : b.life) - dt; if (b.life <= 0) { b.dead = true; continue; } }
     if (solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, 1, 4, 8, 0.3); continue; }
+    if (G.hungry && Math.hypot(G.hungry.x - b.x, G.hungry.y - b.y) < G.hungry.r + 0.8) {
+      b.dead = true; G.hungry.hp -= 1; burst(G.hungry.x, G.hungry.y, 8, 6, 12, 0.35);
+      if (G.hungry.hp <= 0) {
+        if (G.hungry.swallowed) { G.pickups.push({ x: G.hungry.x, y: G.hungry.y, kind: G.hungry.swallowed.kind, ammo: G.hungry.swallowed.ammo, slot: true, ph: 0, cd: 0.5 }); msg('IT SPITS IT OUT', 5, 1.6); }
+        G.floorStats.kills++; G.run.kills++; G.floorStats.rangedKills++;
+        G.hungry = null; SFX.kill();
+      }
+      continue;
+    }
     for (const e of G.enemies) {
       if (e.dead || e.telegraph > 0) continue;
       if (Math.hypot(e.x - b.x, e.y - b.y) < e.r + 0.8) {
+        if (ironBlocked(e, b.x - b.vx * 0.03, b.y - b.vy * 0.03)) { clink(e); b.dead = true; break; } // IRONFRONT stops bullets too
         b.dead = true; e.hp -= 1; e.flash = 0.15;
         e.kx = b.vx * 0.4; e.ky = b.vy * 0.4;
         burst(e.x, e.y, e.ci, 6, 14, 0.35);
@@ -885,9 +1035,15 @@ function updatePlay(dt) {
     if (solidAt(s2.x, ny)) { s2.vy = -s2.vy; bounced = true; }
     if (bounced) { s2.bounces++; tone(700, 400, 0.05, 'square', 0.05); }
     s2.x += s2.vx * dt; s2.y += s2.vy * dt;
+    if (mut('WOODS')) { // no walls to bounce off — the star tires instead
+      wrapWoods(s2);
+      s2.life = (s2.life === undefined ? 2.5 : s2.life) - dt;
+      if (s2.life <= 0) s2.bounces = 3;
+    }
     if (s2.hitCd <= 0) for (const e of G.enemies) {
       if (e.dead || e.telegraph > 0) continue;
       if (Math.hypot(e.x - s2.x, e.y - s2.y) < e.r + 1) {
+        if (ironBlocked(e, s2.x - s2.vx * 0.03, s2.y - s2.vy * 0.03)) { clink(e); s2.hitCd = 0.2; continue; }
         e.hp -= 2; e.flash = 0.15; s2.hitCd = 0.15;
         burst(e.x, e.y, e.ci, 8, 16, 0.4);
         if (e.hp <= 0) killEnemy(e, 'ranged');
@@ -928,6 +1084,100 @@ function updatePlay(dt) {
       }
       G.bat = null;
     }
+  }
+
+  // THE FOUNTAIN heals whoever stands in it. whoever.
+  if (G.pool) {
+    const pl = G.pool;
+    if (Math.hypot(p.x - pl.x, p.y - pl.y) < pl.r) {
+      p.healAcc = (p.healAcc || 0) + 0.8 * dt;
+      if (p.healAcc >= 1) {
+        p.healAcc = 0;
+        if (p.hp < p.maxhp) { p.hp++; burst(p.x, p.y, 3, 8, 8, 0.4); msg('+1 HP', 3, 0.8); tone(700, 900, 0.1, 'triangle', 0.05); }
+      }
+    }
+    for (const e of G.enemies) {
+      if (e.telegraph <= 0 && Math.hypot(e.x - pl.x, e.y - pl.y) < pl.r) e.hp = Math.min(e.hp0 || e.hp, e.hp + 0.8 * dt);
+    }
+  }
+
+  // THE HUNGRY ONE homes on your hands
+  if (G.hungry) {
+    const h = G.hungry;
+    h.ph += dt * 4;
+    if (h.swallowed) {
+      h.digestT -= dt;
+      const fx = h.x - p.x, fy = h.y - p.y, fd = Math.hypot(fx, fy) || 1;
+      tryMove(h, h.x + fx / fd * 3 * dt, h.y + fy / fd * 3 * dt, 2);
+      if (h.digestT <= 0) {
+        G.floorStats.itemsStolen++;
+        msg('DIGESTED. THE ' + ITEMS[h.swallowed.kind].label + ' IS GONE.', 7, 2.2);
+        A.startGlitch(0.7, 0.3, 'scramble');
+        burst(h.x, h.y, 8, 20, 10, 0.8);
+        G.hungry = null;
+      }
+    } else {
+      const tx2 = p.x - h.x, ty2 = p.y - h.y, td = Math.hypot(tx2, ty2) || 1;
+      tryMove(h, h.x + tx2 / td * 4.2 * dt, h.y + ty2 / td * 4.2 * dt, 2);
+      if (p.held && td < h.r + 1.5) {
+        h.swallowed = p.held; p.held = null;
+        h.digestT = 6;
+        msg('SWALLOWED! KILL IT IN 6s', 7, 2.2);
+        A.startGlitch(0.8, 0.3, 'chroma');
+        tone(200, 40, 0.6, 'sawtooth', 0.12);
+      }
+    }
+  }
+
+  // THE TOLL: walk over the goods to buy them with score
+  if (G.cur.goods) {
+    for (const gd of G.cur.goods) {
+      if (gd.dead || Math.hypot(gd.x - p.x, gd.y - p.y) > 3) continue;
+      if (liveScore() >= gd.price) {
+        gd.dead = true;
+        G.run.bonus = (G.run.bonus || 0) - gd.price;
+        G.floorStats.spent += gd.price;
+        if (ITEMS[gd.kind]) { // hands item
+          if (p.held) G.pickups.push({ x: p.x, y: p.y, kind: p.held.kind, ammo: p.held.ammo, slot: true, ph: 0, cd: 1.2 });
+          p.held = { kind: gd.kind, ammo: gd.kind === 'gun' ? 6 : undefined };
+        } else if (gd.kind === 'heart') p.hp = Math.min(p.maxhp, p.hp + 1);
+        else if (gd.kind === 'sword') p.swords++;
+        msg('"THANK YOU." (-' + gd.price + ')  AURUM APPROVES', 5, 2);
+        SFX.pickup();
+      } else if (!G.cur.alarmed) {
+        G.cur.alarmed = true;
+        msg('THE OLD DUCK SCREAMS: THIEF', 7, 2.2);
+        A.startGlitch(0.9, 0.35, 'shear');
+        SFX.hurt();
+        G.cur.cleared = false;
+        spawnEnemies(G.cur, mulberry32(G.cur.seed ^ 0xBEEF), null);
+        G.locked = true;
+        if (G.cur.mut !== 'WOODS') for (const [bx, by] of G.bars) G.solid[by * COLS + bx] = 1;
+      }
+    }
+    G.cur.goods = G.cur.goods.filter(gd => !gd.dead);
+  }
+
+  // a heart piece, if you can see it
+  if (G.cur.piece && Math.hypot(G.cur.piece.x - p.x, G.cur.piece.y - p.y) < 2.6) {
+    G.cur.piece = null;
+    G.run.pieces = (G.run.pieces || 0) + 1;
+    G.floorStats.heartPieces++;
+    burst(p.x, p.y, 7, 16, 14, 0.6);
+    if (G.run.pieces % 4 === 0) {
+      p.maxhp++; p.hp = Math.min(p.maxhp, p.hp + 1);
+      msg('A HEART ASSEMBLES. +1 MAX HP', 7, 2.6);
+      SFX.stairs();
+    } else {
+      msg('HEART PIECE (' + (G.run.pieces % 4) + '/4)', 7, 1.6);
+      SFX.pickup();
+    }
+  }
+
+  // the lantern dowses for secrets
+  if (heldKind() === 'lantern' && (G.cur.piece || (G.cur.chest && !G.cur.chest.opened))) {
+    G.dowseT = (G.dowseT || 0) - dt;
+    if (G.dowseT <= 0) { G.dowseT = 1.2; tone(1200, 1180, 0.06, 'sine', 0.05); }
   }
 
   // the chest wants the key
@@ -979,6 +1229,8 @@ function updatePlay(dt) {
   // room transitions (only through open doors — bars are solid anyway)
   const mid = (X0 + X1) / 2, midY = (Y0 + Y1) / 2;
   let moved = null;
+  if (G.wrapCd > 0) { /* just crossed the woods seam — no door chaining */ }
+  else {
   if (p.y <= Y0 + 2.5 && Math.abs(p.x - mid) <= DOOR / 2 && G.cur.doors.n && !G.locked) moved = ['n', 0, -1];
   if (p.y >= Y1 - 2.5 && Math.abs(p.x - mid) <= DOOR / 2 && G.cur.doors.s && !G.locked) moved = ['s', 0, 1];
   if (p.x <= X0 + 2.5 && Math.abs(p.y - midY) <= DOOR / 2 && G.cur.doors.w && !G.locked) moved = ['w', -1, 0];
@@ -991,6 +1243,7 @@ function updatePlay(dt) {
       if (dir === 'w') p.x = X1 - 4; if (dir === 'e') p.x = X0 + 4;
       enterRoom(next, dir);
     }
+  }
   }
 
   // stairs
@@ -1136,6 +1389,35 @@ function drawWorld() {
     const pulse = 0.3 + 0.15 * Math.sin(G.t * 3);
     for (const [x, y] of G.bars) px(x, y, 3, pulse);
   }
+  // grass: dim green tufts (render as ',' via the ramp)
+  if (G.cur.tufts) for (const tf of G.cur.tufts) {
+    px(tf.x, tf.y, 4, (0.24 + 0.08 * Math.sin(G.t * 2 + tf.x)) * Math.max(0.3, lightAt(tf.x, tf.y) * 1.5));
+  }
+  // the fountain pool
+  if (G.pool) {
+    for (let i = 0; i < 70; i++) {
+      const a = i / 70 * Math.PI * 2;
+      const rr = G.pool.r * (0.35 + 0.65 * ((i * 7) % 10) / 10);
+      px(G.pool.x + Math.cos(a + G.t * 0.4) * rr, G.pool.y + Math.sin(a + G.t * 0.4) * rr * 0.6, i % 3 ? 6 : 3, 0.3 + 0.18 * Math.sin(G.t * 3 + i));
+    }
+  }
+  // a heart piece shimmers, barely (the lantern makes it honest)
+  if (G.cur.piece) {
+    const pc = G.cur.piece;
+    const dowsing = heldKind() === 'lantern';
+    const al = dowsing ? 0.7 + 0.3 * Math.sin(G.t * 6) : 0.14 + 0.12 * Math.sin(G.t * 1.7);
+    px(pc.x, pc.y, 7, al); px(pc.x + 1, pc.y, 7, al * 0.7); px(pc.x, pc.y - 1, 7, al * 0.7);
+  }
+  // the old duck and his wares
+  if (G.cur.merchant) {
+    blit(SPR.duck[0], G.cur.merchant.x - 4, G.cur.merchant.y - 3, 1, 0.9, false);
+    A.text(G.cur.merchant.x - 1, G.cur.merchant.y - 6, '$', 5, 0.8 + 0.2 * Math.sin(G.t * 2));
+  }
+  if (G.cur.goods) for (const gd of G.cur.goods) {
+    const spr = SPR[gd.kind];
+    if (spr) blit(spr, gd.x - spr[0].length / 2, gd.y - spr.length / 2 + Math.sin(G.t * 2 + gd.x) * 0.8, ITEMS[gd.kind] ? ITEMS[gd.kind].ci : 7, 0.9, false);
+    A.text(gd.x - 2, gd.y + 3, String(gd.price), liveScore() >= gd.price ? 5 : 7, 0.85);
+  }
   // stairs + orbiting glyph vortex
   if (G.cur.type === 'stairs' && G.cur.cleared) {
     const pulse = 0.5 + 0.5 * Math.sin(G.t * 4);
@@ -1182,6 +1464,27 @@ function drawWorld() {
     const frame = ((G.t * 6) | 0) % 2;
     const spr = SPR[e.type][frame];
     blit(spr, e.x - spr[0].length / 2, e.y - spr.length / 2, e.ci, bright, e.vx > 0.5);
+    // IRONFRONT: the iron face gleams on the guarded side
+    if (mut('IRONFRONT') && e.faceA !== undefined) {
+      px(e.x + Math.cos(e.faceA) * 3.4, e.y + Math.sin(e.faceA) * 2.8, 0, 0.9);
+      px(e.x + Math.cos(e.faceA + 0.5) * 3.2, e.y + Math.sin(e.faceA + 0.5) * 2.6, 0, 0.6);
+      px(e.x + Math.cos(e.faceA - 0.5) * 3.2, e.y + Math.sin(e.faceA - 0.5) * 2.6, 0, 0.6);
+    }
+    // THE ORDER: numbered deaths, next one lit
+    if (mut('ORDER') && e.ord) A.text(e.x - 0.5, e.y - 5, String(e.ord), e.ord === G.ordNext ? 5 : 1, e.ord === G.ordNext ? 1 : 0.5);
+  }
+  // THE HUNGRY ONE: a fat wobbling gullet
+  if (G.hungry) {
+    const h = G.hungry;
+    for (let yy = -2; yy <= 2; yy++) for (let xx = -3; xx <= 3; xx++) {
+      const w = Math.sin(G.t * 5 + xx + yy) * 0.4;
+      if (xx * xx / 9 + yy * yy / 4 <= 1) px(h.x + xx + w, h.y + yy, 8, 0.75 + 0.15 * Math.sin(G.t * 4 + xx * yy));
+    }
+    px(h.x - 1, h.y - 1, 0, 1); px(h.x + 1, h.y - 1, 0, 1);
+    if (h.swallowed) {
+      px(h.x, h.y + 0.5, ITEMS[h.swallowed.kind].ci, 0.9);
+      A.text(h.x - 0.5, h.y - 5, h.digestT.toFixed(1), 7, 0.9);
+    }
   }
   // THE BAT (gold, so you know it's trouble)
   if (G.bat) {
@@ -1263,9 +1566,10 @@ function drawHud() {
     const frac = Math.max(0, Math.min(1, 1 - p.dashCd / (st.dashCd + 0.13)));
     A.text(38, 0, 'DASH [' + '#'.repeat(Math.round(frac * 5)) + '-'.repeat(5 - Math.round(frac * 5)) + ']', 1);
   }
-  A.text(52, 0, 'KILLS ' + G.run.kills, 2);
-  A.text(64, 0, 'SEED ' + G.seed.toString(16).toUpperCase(), 1, 0.6);
-  A.text(80, 0, 'BEST ' + G.best, 1, 0.6);
+  A.text(52, 0, 'SCORE ' + liveScore(), 2);
+  A.text(66, 0, 'K ' + G.run.kills, 1, 0.7);
+  A.text(74, 0, 'BEST ' + G.best, 1, 0.6);
+  A.text(88, 2, 'SEED ' + G.seed.toString(16).toUpperCase(), 1, 0.4);
   // pantheon strip: glyph lit if boon, barred if curse (shape = second channel)
   let x = 96;
   for (const g of P.GODS) {

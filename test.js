@@ -18,6 +18,7 @@ const base = {
   time: 40, roomCount: 5, kills: 6, interrupts: 1, dmgTaken: 1,
   dashThroughs: 2, pickups: 1, treasureFound: 1, idleT: 2, depth: 2,
   rangedKills: 1, chestsOpened: 0, hotdogsEaten: 0, chaliceDelivered: 0, itemsStolen: 0,
+  tuftsCut: 2, spent: 0, heartPieces: 0,
 };
 const perfect = { ...base, time: 20, idleT: 0, kills: 14, interrupts: 4, dmgTaken: 0, dashThroughs: 5, pickups: 3, treasureFound: 1, depth: 6, rangedKills: 0, chestsOpened: 1, chaliceDelivered: 0 };
 const awful = { ...base, time: 300, idleT: 60, kills: 0, interrupts: 0, dmgTaken: 6, dashThroughs: 0, pickups: 0, treasureFound: 0, depth: 1, rangedKills: 0, chestsOpened: 0 };
@@ -88,6 +89,17 @@ for (const stats of [base, perfect, awful]) {
   t('aurum covets the chest', a1 > a0);
 }
 
+// AURUM: circulation — spending score at the toll raises the grade
+{
+  const frugal = { ...base, spent: 0, pickups: 0, tuftsCut: 0 };
+  const spender = { ...frugal, spent: 200 };
+  const a0 = P.judge(frugal, favor).find(c => c.id === 'aurum').score;
+  const a1 = P.judge(spender, favor).find(c => c.id === 'aurum').score;
+  t('aurum loves circulation', a1 > a0);
+  const mower = { ...frugal, tuftsCut: 10 };
+  t('aurum counts the grass', P.judge(mower, favor).find(c => c.id === 'aurum').score > a0);
+}
+
 // special verdicts derive from the stat log
 {
   const cards = P.judge(base, favor);
@@ -100,7 +112,8 @@ for (const stats of [base, perfect, awful]) {
 // (once defining the room's rule, at least once applying it to real gameplay)
 {
   const src = fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
-  for (const key of ['LOWGRAV', 'SIDEGRAV', 'DARK', 'FLICKER', 'HASTE', 'MOLASSES', 'SWARM', 'RUBBER']) {
+  for (const key of ['LOWGRAV', 'SIDEGRAV', 'DARK', 'FLICKER', 'HASTE', 'MOLASSES', 'SWARM', 'RUBBER',
+    'IRONFRONT', 'WOODS', 'ORDER', 'PHASE', 'HUNGRY', 'FOUNTAIN', 'TOLL']) {
     const uses = src.split(`'${key}'`).length - 1 + src.split(`${key}:`).length - 1;
     t(`MUT ${key} consumed by game.js (${uses} refs)`, uses >= 2);
   }
@@ -116,10 +129,11 @@ for (const stats of [base, perfect, awful]) {
   const ids = new Set(P.LORE.map(f => f.id));
   t('lore ids unique', ids.size === P.LORE.length);
   t('lore texts present', P.LORE.every(f => typeof f.text === 'string' && f.text.length > 10));
-  const empty = { runs: 0, deaths: 0, totalKills: 0, deepest: 0, bestScore: 0, floor1Deaths: 0, totalHotdogs: 0, totalChests: 0, totalChalices: 0, totalStolen: 0 };
+  const empty = { runs: 0, deaths: 0, totalKills: 0, deepest: 0, bestScore: 0, floor1Deaths: 0, totalHotdogs: 0, totalChests: 0, totalChalices: 0, totalStolen: 0, totalTufts: 0, totalSpent: 0, totalPieces: 0 };
   t('fresh ledger has no memories', P.unlockedLore(empty).length === 0);
-  const rich = { runs: 10, deaths: 10, totalKills: 100, deepest: 6, bestScore: 900, floor1Deaths: 4, totalHotdogs: 2, totalChests: 3, totalChalices: 1, totalStolen: 2 };
+  const rich = { runs: 10, deaths: 10, totalKills: 100, deepest: 6, bestScore: 900, floor1Deaths: 4, totalHotdogs: 2, totalChests: 3, totalChalices: 1, totalStolen: 2, totalTufts: 30, totalSpent: 250, totalPieces: 5 };
   t('a full life surfaces every memory', P.unlockedLore(rich).length === P.LORE.length);
+  t('the lore is fifteen strong', P.LORE.length === 15);
   t('unlockedLore survives a broken ledger', Array.isArray(P.unlockedLore({})));
 }
 
