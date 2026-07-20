@@ -119,14 +119,24 @@ const ITEMS = {
   chalice: { label: 'CHALICE', hint: 'deliver it untouched', ci: 5 },
   bomb: { label: 'BOMB', hint: 'C throws. stand back.', ci: 7 },
   // the six signature weapons — each a distinct feel (chosen in the armory at run start)
-  hammer: { label: 'HAMMER', hint: 'hold C: charge & SMASH', ci: 7, weapon: true, melee: true },
-  whip: { label: 'WHIP', hint: 'C: long, wild, no close', ci: 2, weapon: true, melee: true },
-  rapier: { label: 'RAPIER', hint: 'fast precise slash', ci: 3, weapon: true, melee: true },
-  boomerang: { label: 'BOOMERANG', hint: 'C: throws & returns', ci: 5, weapon: true },
-  flail: { label: 'FLAIL', hint: 'orbits you always', ci: 8, weapon: true, melee: true },
-  sporebow: { label: 'SPORE-BOW', hint: 'C: lob a vine burst', ci: 4, weapon: true },
+  hammer: { label: 'HAMMER', hint: 'hold X: charge & SMASH', ci: 7, weapon: true, melee: true },
+  whip: { label: 'WHIP', hint: 'X: long, wild, no close', ci: 2, weapon: true, melee: true },
+  rapier: { label: 'RAPIER', hint: 'X: fast precise stab', ci: 3, weapon: true, melee: true },
+  boomerang: { label: 'BOOMERANG', hint: 'X: throw & return', ci: 5, weapon: true },
+  flail: { label: 'FLAIL', hint: 'orbits; X: front sweep', ci: 8, weapon: true, melee: true },
+  sporebow: { label: 'SPORE-BOW', hint: 'X: lob a vine burst', ci: 4, weapon: true },
 };
 const WEAPONS = ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'];
+// One source of truth for weapon balance (fun_test asserts the DPS band off this).
+// dmg × (multi hits) / cd = single-target DPS; kept in a 0.6..1.4× median band.
+const WEAPON_STATS = {
+  hammer: { dmg: 5, cd: 0.85, reach: 10, ci: 7, multi: 1 },   // 5.9 dps, but AoE + stun
+  whip: { dmg: 3, cd: 0.42, reach: 13, ci: 2, multi: 1 },     // 7.1 dps, dead-zone + jitter
+  rapier: { dmg: 1, cd: 0.14, reach: 5, ci: 3, multi: 1 },    // 7.1 dps, tiny reach
+  boomerang: { dmg: 2, cd: 0.62, reach: 12, ci: 5, multi: 2 },// 6.5 dps, hits both legs
+  flail: { dmg: 2, cd: 0.36, reach: 7, ci: 8, multi: 1 },     // 5.6 dps, front-arc, no aim
+  sporebow: { dmg: 6, cd: 0.95, reach: 14, ci: 4, multi: 1 }, // 6.3 dps AoE, regenerating ammo
+};
 
 // ---------- rng ----------
 function shuffle(arr, rng) {
@@ -697,20 +707,20 @@ function enterRoom(room, fromDir) {
       for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 6; xx++) put(x + xx, y + yy);
     }
   } else if (room.arch === 'LABYRINTH') {
-    // a maze of short offset walls you weave through
-    for (let gy = Y0 + 5; gy < Y1 - 4; gy += 5) {
+    // a maze of SHORT offset walls (max run 6) with wide lanes — never a soft-lock
+    for (let gy = Y0 + 5; gy < Y1 - 4; gy += 6) {
       let x = X0 + 4 + ((rng() * 8) | 0);
       while (x < X1 - 4) {
-        const len = 4 + ((rng() * 7) | 0);
+        const len = 3 + ((rng() * 4) | 0); // <= 6 cells
         for (let k = 0; k < len; k++) put(x + k, gy);
-        x += len + 5 + ((rng() * 6) | 0);
+        x += len + 7 + ((rng() * 6) | 0);
       }
     }
   } else if (room.arch === 'AQUEDUCT') {
-    // parallel channel walls with arch gaps
+    // parallel channel walls with WIDE arch gaps enemies can path through (14-cell gaps)
     for (const gy of [cy - 8, cy + 8]) {
       for (let x = X0 + 3; x < X1 - 3; x++) {
-        if ((x - X0) % 12 < 8) { put(x, gy); put(x, gy + 1); }
+        if ((x - X0) % 20 < 6) { put(x, gy); put(x, gy + 1); } // 6 solid, 14 open
       }
     }
   } else if (room.arch === 'BONEYARD') {
@@ -858,6 +868,10 @@ function spawnEnemies(room, rng, fromDir) {
   let nBats = G.depth >= 2 ? 1 + ((rng() * Math.min(G.depth, 3)) | 0) : 0;
   let nTurrets = G.depth >= 3 ? 1 + (G.depth >= 5 ? 1 : 0) : 0;
   if (room.mut === 'SWARM') { nDucks *= 2; nBats *= 2; } // half HP applied below
+  // density cap: a tiny crypt/grotto can't fairly hold a full swarm (~1 enemy / 260 cells)
+  const freeCells = (X1 - X0) * (Y1 - Y0);
+  const cap = Math.max(3, Math.floor(freeCells / 260));
+  { let total = nDucks + nBats + nTurrets; if (total > cap) { const s = cap / total; nDucks = Math.max(1, Math.round(nDucks * s)); nBats = Math.round(nBats * s); nTurrets = Math.round(nTurrets * s); } }
   const p = G.player;
   const place = () => {
     for (let tries = 0; tries < 50; tries++) {
@@ -962,57 +976,109 @@ function useItem() {
     G.floorStats.idleT += 4; // VELOX bills digestion as idling
     p.held = null;
     SFX.pickup();
-  } else if (k === 'whip') {
-    // long reach, WILD aim, useless up close (dead zone < 4)
-    const jitter = (Math.random() - 0.5) * 0.98; // ±28°
-    const base = Math.atan2(p.dir.y, p.dir.x) + jitter;
-    G.whipCrack = { a: base, t: 0.18, len: 13 };
-    let hit = false;
-    for (const e of G.enemies) {
-      if (e.telegraph > 0) continue;
-      const d = Math.hypot(e.x - p.x, e.y - p.y);
-      if (d < 4 || d > 13) continue; // dead zone + max reach
-      const ea = Math.atan2(e.y - p.y, e.x - p.x);
-      if (Math.abs(angDiff(ea, base)) < 0.22) { e.hp -= 2; e.flash = 0.15; e.kx = (e.x - p.x) / d * 30; e.ky = (e.y - p.y) / d * 30; burst(e.x, e.y, e.ci, 6, 14, 0.3); hit = true; if (e.hp <= 0) killEnemy(e, 'melee'); }
-    }
-    G.shake = Math.max(G.shake, 1); tone(1400, 300, 0.07, 'sawtooth', 0.06);
-    if (hit) SFX.hit();
-  } else if (k === 'boomerang') {
-    if (G.booms.length) return; // one in flight
-    G.booms.push({ x: p.x, y: p.y, vx: p.dir.x * 30, vy: p.dir.y * 30, t: 0, back: false, hitCd: {} });
-    p.thrown = true;
-    tone(600, 900, 0.1, 'triangle', 0.06);
-  } else if (k === 'sporebow') {
-    p.held.ammo--;
-    const spd = 22;
-    G.booms.push({ spore: true, x: p.x, y: p.y, vx: p.dir.x * spd, vy: p.dir.y * spd, vz: 8, z: 0 });
-    tone(300, 500, 0.12, 'triangle', 0.05);
-    if (p.held.ammo <= 0) { p.held = null; msg('SPORE-BOW SPENT', 1, 1.2); }
-  } else if (k === 'hammer') {
-    // charge handled in updatePlay (hold); a tap just tells you how it works
-    if (!p.chargeHint) { p.chargeHint = true; msg('HOLD C TO CHARGE THE HAMMER', 7, 1.4); }
+  } else if (ITEMS[k] && ITEMS[k].weapon) {
+    // signature weapons attack with X (they own the attack + animation), not C
+    if (!p.weaponHint) { p.weaponHint = true; msg('ATTACK WITH X / SPACE', ITEMS[k].ci, 1.4); }
   } else {
     msg(ITEMS[k].label + ': ' + ITEMS[k].hint, ITEMS[k].ci, 1.2);
   }
 }
 
+// Each signature weapon owns the X-attack: its own reach/cd/damage, LOS-gated, and a
+// distinct color-matched animation (WFX). No base sword layered underneath.
+function weaponAttack(kind) {
+  const p = G.player;
+  if (p.atkCd > 0) return;
+  const w = WEAPON_STATS[kind];
+  p.atkCd = w.cd;
+  const baseA = Math.atan2(p.dir.y, p.dir.x);
+  if (kind === 'rapier') {
+    // fast precise short stab — reuse the base slash arc but on rapier reach/cd
+    slashCore(w.reach, w.dmg, 0.35);
+    G.wfx = { kind, a: baseA, t: 0.10, reach: w.reach };
+    SFX.slash();
+  } else if (kind === 'whip') {
+    const jitter = (Math.random() - 0.5) * 0.98; // ±28° wild aim
+    const a = baseA + jitter;
+    let hit = false;
+    for (const e of G.enemies) {
+      if (e.telegraph > 0) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d < 4 || d > w.reach) continue; // dead zone + max reach
+      if (losBlocked(p.x, p.y, e.x, e.y)) continue;
+      if (Math.abs(angDiff(Math.atan2(e.y - p.y, e.x - p.x), a)) < 0.24) {
+        e.hp -= w.dmg; e.flash = 0.15; e.kx = (e.x - p.x) / d * 30; e.ky = (e.y - p.y) / d * 30; burst(e.x, e.y, e.ci, 6, 14, 0.3); hit = true; if (e.hp <= 0) killEnemy(e, 'melee');
+      }
+    }
+    G.wfx = { kind, a, t: 0.18, reach: w.reach };
+    G.shake = Math.max(G.shake, 1); tone(1400, 300, 0.07, 'sawtooth', 0.06); if (hit) SFX.hit();
+  } else if (kind === 'flail') {
+    // the flail's damage is its passive orbit (updatePlay); X is a flourish burst that
+    // sweeps the FRONT arc harder — you must face the threat
+    for (const e of G.enemies) {
+      if (e.telegraph > 0) continue;
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      if (d > w.reach + 1) continue;
+      if ((dx * p.dir.x + dy * p.dir.y) / d < 0) continue; // front only
+      if (losBlocked(p.x, p.y, e.x, e.y)) continue;
+      e.hp -= w.dmg; e.flash = 0.15; e.kx = dx / d * 40; e.ky = dy / d * 40; burst(e.x, e.y, e.ci, 6, 16, 0.3); if (e.hp <= 0) killEnemy(e, 'melee');
+    }
+    G.wfx = { kind, a: baseA, t: 0.2, reach: w.reach };
+    tone(600, 300, 0.08, 'square', 0.06);
+  } else if (kind === 'boomerang') {
+    if (G.booms.length) return;
+    G.booms.push({ x: p.x, y: p.y, vx: p.dir.x * 30, vy: p.dir.y * 30, t: 0, back: false, hitCd: {}, dmg: w.dmg });
+    G.wfx = { kind, a: baseA, t: 0.15, reach: w.reach };
+    tone(600, 900, 0.1, 'triangle', 0.06);
+  } else if (kind === 'sporebow') {
+    if ((p.held.ammo || 0) <= 0) { msg('SPORE-BOW EMPTY (clear a room to grow)', 1, 1.2); return; }
+    p.held.ammo--;
+    G.booms.push({ spore: true, x: p.x, y: p.y, vx: p.dir.x * 22, vy: p.dir.y * 22, vz: 8, z: 0, dmg: w.dmg });
+    G.wfx = { kind, a: baseA, t: 0.2, reach: w.reach };
+    tone(300, 500, 0.12, 'triangle', 0.05);
+  }
+}
+
+// shared arc hit used by base slash + rapier (LOS-gated)
+function slashCore(reach, dmg, dot0) {
+  const p = G.player;
+  let hitAny = false;
+  for (const e of G.enemies) {
+    if (e.telegraph > 0) continue;
+    const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy);
+    if (d > reach) continue;
+    if ((dx * p.dir.x + dy * p.dir.y) / (d || 1) < dot0) continue;
+    if (losBlocked(p.x, p.y, e.x, e.y)) continue;
+    if (ironBlocked(e, p.x, p.y)) { clink(e); hitAny = true; continue; }
+    e.hp -= dmg; e.flash = 0.15; hitAny = true;
+    if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
+    e.kx = dx / (d || 1) * 40 * playerStats().kb; e.ky = dy / (d || 1) * 40 * playerStats().kb;
+    burst(e.x, e.y, e.ci, 8, 18, 0.4);
+    if (e.hp <= 0) killEnemy(e, 'melee');
+  }
+  if (hitAny) { G.hitstop = 0.05; G.shake = Math.max(G.shake, 1.5); SFX.hit(); }
+  return hitAny;
+}
+
 // HAMMER: charged overhead smash — big arc, damage scales with charge, stuns
 function hammerSmash(charge) {
   const p = G.player;
-  const dmg = 3 + Math.round(charge * 2); // 3..5
-  const reach = 7 + charge * 3;
-  const baseA = Math.atan2(p.dir.y, p.dir.x);
+  p.atkCd = WEAPON_STATS.hammer.cd; // the smash cannot be spammed
+  const dmg = Math.round(2 + charge * 3); // 2..5 by charge
+  const reach = WEAPON_STATS.hammer.reach * (0.7 + charge * 0.3);
   let hit = false;
   for (const e of G.enemies) {
     if (e.telegraph > 0) continue;
     const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
     if (d > reach) continue;
     if ((dx * p.dir.x + dy * p.dir.y) / d < 0) continue; // front arc
+    if (losBlocked(p.x, p.y, e.x, e.y)) continue; // walls stop the hammer too
     e.hp -= dmg; e.flash = 0.2; e.state = 'recover'; e.st = 0.4; // stun
     e.kx = dx / d * 70; e.ky = dy / d * 70;
     burst(e.x, e.y, e.ci, 14, 24, 0.5); hit = true;
     if (e.hp <= 0) killEnemy(e, 'melee');
   }
+  G.wfx = { kind: 'hammer', a: Math.atan2(p.dir.y, p.dir.x), t: 0.25, reach };
   G.smashFx = { x: p.x + p.dir.x * reach * 0.6, y: p.y + p.dir.y * reach * 0.6, r: reach, t: 0.25 };
   G.shake = Math.max(G.shake, 3 + charge * 3); G.hitstop = Math.max(G.hitstop, 0.08);
   A.startGlitch(0.5 + charge * 0.4, 0.25, 'pop');
@@ -1223,6 +1289,9 @@ function explode(bx, by) {
 
 function roomCleared() {
   G.cur.cleared = true;
+  // the spore-bow grows back a seed each cleared room, so it stays a weapon not a consumable
+  const p = G.player;
+  if (heldKind() === 'sporebow') p.held.ammo = Math.min(8, (p.held.ammo || 0) + 1);
   A.startGlitch(0.6, 0.25, 'pop');
   const delay = curse('velox') ? FX.CURSE_VELOX : 0;
   G.doorOpenAt = G.t + delay;
@@ -1282,33 +1351,40 @@ function updatePlay(dt) {
   p.invulnT -= dt; p.atkCd -= dt; p.atkT -= dt;
   if (p.digestT > 0) p.digestT -= dt;
 
-  if (keys['x'] || keys[' ']) slash();
-
-  // ---- weapon feel: hammer charge, flail orbit, whip-crack decay ----
   const heldK = heldKind();
-  // HAMMER: hold C to charge, release to smash
+  const wpn = ITEMS[heldK] && ITEMS[heldK].weapon;
+  // X/SPACE is the ATTACK button. A held weapon OWNS it (its own hit + animation);
+  // bare-handed (or holding a non-weapon) you get the base sword. No free sword underneath.
+  const atkPressed = keys['x'] || keys[' '];
+  if (wpn) { if (heldK !== 'hammer') { if (atkPressed) weaponAttack(heldK); } }
+  else if (atkPressed) slash();
+
+  // HAMMER: hold X to charge, release to smash (its "attack" is the charge)
   if (heldK === 'hammer') {
-    if (keys['c']) { p.chargeT = Math.min(1.2, p.chargeT + dt); p.charging = true; }
-    else if (p.charging) { hammerSmash(Math.min(1, p.chargeT / 1.2)); p.charging = false; p.chargeT = 0; }
+    if (atkPressed) { p.chargeT = Math.min(1.2, p.chargeT + dt); p.charging = true; }
+    else if (p.charging) { if (p.atkCd <= 0) hammerSmash(Math.min(1, p.chargeT / 1.2)); p.charging = false; p.chargeT = 0; }
     if (p.charging) { vx *= 0.6; vy *= 0.6; if (Math.random() < p.chargeT * 0.3) G.shake = Math.max(G.shake, p.chargeT * 1.5); }
   } else { p.charging = false; p.chargeT = 0; }
-  // FLAIL: a head orbits you, sweeping anything it passes
+  // FLAIL: a head orbits you, sweeping enemies IN FRONT (you must face the threat)
   if (heldK === 'flail') {
     p.orbitA += dt * 6.5;
     const fx = p.x + Math.cos(p.orbitA) * 7, fy = p.y + Math.sin(p.orbitA) * 5;
     p.flailPos = { x: fx, y: fy };
+    const fw = WEAPON_STATS.flail;
     for (const e of G.enemies) {
       if (e.telegraph > 0) continue;
       e.flailCd = Math.max(0, (e.flailCd || 0) - dt);
-      if (e.flailCd <= 0 && Math.hypot(e.x - fx, e.y - fy) < e.r + 1.5) {
-        e.hp -= 2; e.flash = 0.15; e.flailCd = 0.25;
-        e.kx = (e.x - p.x) * 2.5; e.ky = (e.y - p.y) * 2.5;
+      const dx = e.x - p.x, dy = e.y - p.y, d = Math.hypot(dx, dy) || 1;
+      const inFront = (dx * p.dir.x + dy * p.dir.y) / d > -0.2;
+      if (e.flailCd <= 0 && inFront && !losBlocked(p.x, p.y, e.x, e.y) && Math.hypot(e.x - fx, e.y - fy) < e.r + 1.5) {
+        e.hp -= fw.dmg; e.flash = 0.15; e.flailCd = fw.cd;
+        e.kx = dx * 2.5; e.ky = dy * 2.5;
         burst(e.x, e.y, e.ci, 5, 12, 0.25); tone(700, 400, 0.05, 'square', 0.05);
         if (e.hp <= 0) killEnemy(e, 'melee');
       }
     }
   } else p.flailPos = null;
-  if (G.whipCrack) { G.whipCrack.t -= dt; if (G.whipCrack.t <= 0) G.whipCrack = null; }
+  if (G.wfx) { G.wfx.t -= dt; if (G.wfx.t <= 0) G.wfx = null; }
   if (G.smashFx) { G.smashFx.t -= dt; if (G.smashFx.t <= 0) G.smashFx = null; }
 
   // boomerangs + spore lobs
@@ -1328,7 +1404,7 @@ function updatePlay(dt) {
       if (e.telegraph > 0) continue;
       b.hitCd[e.__i = e.__i || Math.random()] = Math.max(0, (b.hitCd[e.__i] || 0) - dt);
       if (b.hitCd[e.__i] <= 0 && Math.hypot(e.x - b.x, e.y - b.y) < e.r + 1) {
-        e.hp -= 2; e.flash = 0.15; b.hitCd[e.__i] = 0.3; burst(e.x, e.y, e.ci, 5, 12, 0.3);
+        e.hp -= (b.dmg || 2); e.flash = 0.15; b.hitCd[e.__i] = 0.3; burst(e.x, e.y, e.ci, 5, 12, 0.3);
         if (e.hp <= 0) killEnemy(e, 'ranged');
       }
     }
@@ -1927,6 +2003,41 @@ function drawGallery(dt) {
   A.textC(80, 'the first plays automatically when a new soul begins', 4, 0.5);
 }
 
+// the credits — a scrolling scene using every animation trick in the box
+const CREDIT_LINES = [
+  '', '', 'DUCK SOULS', '', 'a fast-paced ASCII roguelite', 'judged by a pantheon', '',
+  '~', '', 'EVERYTHING YOU SAW', 'was pixels drawn to a 160x90 canvas', 'and read back as characters',
+  'luminance picks the glyph', 'hue picks the color', '', '~', '',
+  'THE PANTHEON', 'VELOX, god of haste', 'PLUMA, the duck-mother',
+  'UMBRA, keeper of the untouched', 'AURUM, the hoarder', 'MORS, the patient', '', '~', '',
+  'THE ARSENAL', 'hammer  whip  rapier', 'boomerang  flail  spore-bow', '', '~', '',
+  'BUILT WITH', 'a video->ASCII filter', 'a pantheon that grades honestly',
+  'a fun-harness that measured itself', 'and would not let a vibe pass for a result', '',
+  '~', '', 'the ducks are dragons', 'the dragons are ducks', '', '',
+  'BlueDuck LLC', '', '', 'press any key to return', '', '', '',
+];
+function drawCredits(dt) {
+  G.credT += dt;
+  // a deep plasma starfield behind, with a rising glyph tunnel
+  plasma(G.t * 0.08, 0.09, [6, 8, 4, 1]);
+  for (let i = 0; i < 40; i++) { const a = i * 0.6, d = ((i * 6 + G.t * 20) % 90); px(80 + Math.cos(a) * d, 45 + Math.sin(a) * d * 0.6, 3, Math.min(0.5, d / 40)); }
+  // the scroll
+  const scroll = G.credT * 4.2;
+  CREDIT_LINES.forEach((line, i) => {
+    const y = i * 2 - scroll + ROWS;
+    if (y < 2 || y > ROWS - 2) return;
+    if (line === '~') { for (let x = 60; x < 100; x++) px(x, y, 4, 0.4 + 0.3 * Math.sin(x * 0.3 + G.t * 4)); return; }
+    const big = line === 'DUCK SOULS' || line === 'BlueDuck LLC';
+    A.textC(y, line, big ? 5 : line === line.toUpperCase() && line.length > 2 ? 2 : 0, big ? 1 : 0.85);
+  });
+  // a couple of orbiting blue orbs, because that's the game now
+  for (let i = 0; i < 4; i++) { const a = G.t * 2 + i * Math.PI / 2; px(80 + Math.cos(a) * 10, 6 + Math.sin(a) * 2, 6, 0.6 + 0.4 * Math.sin(a)); }
+  A.textC(2, 'CREDITS', 0, 0.7);
+  // loop the scroll
+  if (scroll > CREDIT_LINES.length * 2 + ROWS) G.credT = 0;
+  if (G.credT > 0.4 && ((G.t * 1.5) | 0) % 2 === 0) A.text(2, ROWS - 3, 'any key: back', 1, 0.5);
+}
+
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
@@ -1963,12 +2074,27 @@ function onKey(k) {
     return;
   }
   if (G.state === 'title') {
+    const MENU = ['start', 'library', 'credits', 'rules', 'memories'];
+    if (k === 'arrowdown' || k === 's') { G.menuI = ((G.menuI || 0) + 1) % MENU.length; return; }
+    if (k === 'arrowup' || k === 'w') { G.menuI = ((G.menuI || 0) + MENU.length - 1) % MENU.length; return; }
+    // shortcuts still work
     if (k === 'l') { G.state = 'lore'; G.loreT = 0; return; }
     if (k === 'h') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); return; }
     if (k === 'v') { G.state = 'gallery'; G.galT = 0; return; }
+    if (k === 'c') { G.state = 'credits'; G.credT = 0; return; }
+    if (k === 'enter' || k === ' ' || k === 'x') {
+      const sel = MENU[G.menuI || 0];
+      if (sel === 'start') newRun();
+      else if (sel === 'library') { G.state = 'gallery'; G.galT = 0; }
+      else if (sel === 'credits') { G.state = 'credits'; G.credT = 0; }
+      else if (sel === 'rules') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); }
+      else if (sel === 'memories') { G.state = 'lore'; G.loreT = 0; }
+      return;
+    }
     if (!mod) newRun();
     return;
   }
+  if (G.state === 'credits') { if (!mod && G.credT > 0.4) { G.state = 'title'; G.titleT = 0; } return; }
   if (G.state === 'judgment' && (k === ' ' || k === 'enter' || k === 'x')) {
     if (G.judgeT < 0.8) { G.judgeT = 1.1; return; } // first press: land every card now
     nextFloor(); return;                            // second press: descend
@@ -1995,6 +2121,36 @@ function plasma(t, dim, bandCols) {
       const ci = bandCols[Math.abs((v * 1.5 + t) | 0) % bandCols.length];
       px(x, y, ci, (b - 0.4) * dim);
     }
+  }
+}
+
+// unique per-weapon attack animation, colored to the weapon (WEAPON_STATS.ci)
+function drawWeaponFx(p) {
+  const w = G.wfx;
+  if (!w) return;
+  const st = WEAPON_STATS[w.kind], ci = st.ci;
+  const dur = { hammer: 0.25, whip: 0.18, rapier: 0.10, boomerang: 0.15, flail: 0.2, sporebow: 0.2 }[w.kind];
+  const prog = 1 - w.t / dur;
+  if (w.kind === 'whip') { // vermillion lash snaking out to full reach
+    for (let r = 1; r < w.reach * Math.min(1, prog * 1.4); r += 0.7) {
+      const wob = Math.sin(r * 0.7 - G.t * 30) * (1 - r / w.reach) * 2;
+      px(p.x + Math.cos(w.a) * r - Math.sin(w.a) * wob, p.y + (Math.sin(w.a) * r + Math.cos(w.a) * wob) * 0.9, ci, 1 - prog * 0.5);
+    }
+  } else if (w.kind === 'rapier') { // a thin blue lance stabbing forward + recoil
+    const ext = w.reach * Math.sin(prog * Math.PI);
+    for (let r = 1; r < ext; r += 0.5) px(p.x + Math.cos(w.a) * r, p.y + Math.sin(w.a) * r * 0.9, ci, 1);
+    px(p.x + Math.cos(w.a) * ext, p.y + Math.sin(w.a) * ext * 0.9, 0, 1);
+  } else if (w.kind === 'hammer') { // a heavy overhead arc sweeping down (vermillion)
+    for (let da = -1.0; da <= 1.0; da += 0.12) {
+      const a = w.a + da * (1 - prog); // the arc closes as it lands
+      for (let r = 3; r < w.reach; r += 1.2) px(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.85, ci, (1 - prog) * (1 - Math.abs(da) * 0.4));
+    }
+  } else if (w.kind === 'flail') { // a purple full sweep flourish
+    for (let a = 0; a < Math.PI * 2; a += 0.25) { const r = w.reach * (0.6 + 0.4 * prog); px(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.75, ci, (1 - prog) * 0.8); }
+  } else if (w.kind === 'boomerang') { // a golden wind-up arc at the throw
+    for (let a = w.a - 1; a < w.a + 1; a += 0.2) px(p.x + Math.cos(a) * 3, p.y + Math.sin(a) * 2.4, ci, (1 - prog) * 0.7);
+  } else if (w.kind === 'sporebow') { // a green launch puff
+    for (let i = 0; i < 8; i++) px(p.x + Math.cos(w.a) * (2 + i * 0.5) + (Math.random() - 0.5), p.y + Math.sin(w.a) * (2 + i * 0.5), ci, (1 - prog) * 0.6);
   }
 }
 
@@ -2242,16 +2398,9 @@ function drawWorld() {
       px(pc.x + Math.cos(ang) * rr, pc.y + Math.sin(ang) * rr * 0.7, 4, 0.5 * a * (0.5 + 0.5 * Math.sin(G.t * 4 + i)));
     }
   }
-  // whip crack: a snaking line unfurls to its target
-  if (G.whipCrack) {
-    const w = G.whipCrack, prog = 1 - w.t / 0.18;
-    for (let r = 1; r < w.len * prog; r += 0.8) {
-      const wob = Math.sin(r * 0.7 - G.t * 30) * (1 - r / w.len) * 1.5;
-      const ax = w.a + wob * 0.1;
-      px(p.x + Math.cos(ax) * r, p.y + Math.sin(ax) * r * 0.9, 2, (1 - prog) + 0.3);
-    }
-  }
-  // hammer smash shockwave
+  // each weapon draws its OWN color-matched attack animation
+  drawWeaponFx(p);
+  // hammer smash shockwave (paired with the hammer wfx)
   if (G.smashFx) {
     const s = G.smashFx, k = 1 - s.t / 0.25;
     for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; px(s.x + Math.cos(a) * s.r * k, s.y + Math.sin(a) * s.r * k * 0.8, 7, 1 - k); }
@@ -2369,9 +2518,12 @@ function drawHud() {
   }
   A.text(128, 0, muted ? 'MUTED' : '', 1, 0.5);
   // row 2: what you hold + what's wrong with this room
+  const hk = p.held && p.held.kind;
+  const ammoTxt = p.held && (hk === 'gun' || hk === 'bomb' || hk === 'sporebow') && p.held.ammo != null ? ' x' + p.held.ammo : '';
+  const useBtn = p.held ? (ITEMS[hk].weapon ? '  ' : '  [C] ') : '';
   const heldTxt = p.held
-    ? 'HELD: ' + ITEMS[p.held.kind].label + (p.held.kind === 'gun' ? ' x' + p.held.ammo : '') + '  [C] ' + ITEMS[p.held.kind].hint
-    : 'HELD: --';
+    ? 'HELD: ' + ITEMS[hk].label + ammoTxt + useBtn + ITEMS[hk].hint
+    : 'HELD: -- (bare fists: X slash)';
   A.text(2, 2, heldTxt, p.held ? ITEMS[p.held.kind].ci : 1, p.held ? 1 : 0.5);
   if (G.cur.mut) A.text(46, 2, '[ ' + MUT[G.cur.mut].name + ' ]', MUT[G.cur.mut].ci, 0.8 + 0.2 * Math.sin(G.t * 3));
   if (p.digestT > 0) A.text(72, 2, 'DIGESTING ' + p.digestT.toFixed(1), 2, 0.8);
@@ -2457,22 +2609,25 @@ function drawTitle() {
     drawFavorBar(72, y, boon(g.id) ? g.ci : curse(g.id) ? 7 : 1, f, state);
     y += 2;
   }
-  A.textC(64, 'ARROWS / WASD move   X or SPACE slash   Z or SHIFT dash   C use item   M mute', 0, 0.8);
-  A.textC(66, 'every room may be WRONG: gravity, darkness, swarms, rubber, worse', 8, 0.6);
-  if (((G.t * 1.5) | 0) % 2 === 0) A.textC(70, '- PRESS ANY KEY -', 5);
-  // the ledger: what the beginning remembers about you
+  // the menu: Start / Cutscene Library / Credits (+ rules, memories)
   G.titleT = (G.titleT || 0) + 1 / 60;
   const led = G.ledger;
+  const nLore = P.unlockedLore(led).length;
+  const MENU = [['start', 'DESCEND'], ['library', 'CUTSCENE LIBRARY (' + (G.cineSeen ? G.cineSeen.size : loadCine().size) + '/12)'],
+  ['credits', 'CREDITS'], ['rules', 'HOW A PLANT HEARS THE RULES'], ['memories', 'MEMORIES (' + nLore + '/' + P.LORE.length + ')']];
+  const mi = G.menuI || 0;
+  MENU.forEach((m, i) => {
+    const on = i === mi;
+    const lbl = (on ? '> ' : '  ') + m[1] + (on ? ' <' : '');
+    A.textC(60 + i * 2, lbl, on ? 5 : 1, on ? 1 : 0.55);
+  });
+  A.textC(71, 'arrows to choose, ENTER to select', 1, 0.5);
   if (led.runs > 0) {
     const lr = led.lastRuns[0];
-    A.textC(73, 'RUNS ' + led.runs + '   DEEPEST FLOOR ' + led.deepest + '   BEST ' + led.bestScore +
+    A.textC(74, 'RUNS ' + led.runs + '   DEEPEST FLOOR ' + led.deepest + '   BEST ' + led.bestScore +
       (lr ? '   LAST: F' + lr.f + ' / ' + lr.k + ' KILLS / ' + lr.s : ''), 1, 0.75);
-    const nLore = P.unlockedLore(led).length;
-    A.textC(75, '[L] MEMORIES (' + nLore + '/' + P.LORE.length + ')   [H] THE RULES   [V] CUTSCENE LIBRARY', 8, 0.8);
     const latest = P.unlockedLore(led).slice(-1)[0];
-    if (latest) typeText(79, '"' + latest.text + '"', 1, G.titleT - 1, 24, 0.6);
-  } else {
-    A.textC(75, '[H] HOW A PLANT HEARS THE RULES     [V] CUTSCENE LIBRARY', 4, 0.8);
+    if (latest) typeText(77, '"' + latest.text + '"', 1, G.titleT - 1, 24, 0.6);
   }
   A.textC(86, 'BlueDuck LLC / the ducks are dragons / the dragons are ducks', 1, 0.4);
 }
@@ -2588,6 +2743,7 @@ function frame(now) {
   A.beginFrame();
   if (G.state === 'cinema') drawCinema(dt);
   else if (G.state === 'gallery') drawGallery(dt);
+  else if (G.state === 'credits') drawCredits(dt);
   else if (G.state === 'intro') drawIntro(dt);
   else if (G.state === 'howto') drawHowto(dt);
   else if (G.state === 'lore') drawLore(dt);

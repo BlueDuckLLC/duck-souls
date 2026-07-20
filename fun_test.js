@@ -224,9 +224,12 @@ const has = re => re.test(SRC);
 }
 // F25: each weapon has its OWN animation branch (color-matched per the operator ask).
 {
+  // count the per-weapon branches INSIDE drawWeaponFx — a distinct visual per weapon,
+  // not just the function existing (that would be the shape-vs-behavior trap)
+  const fx = SRC.match(/function drawWeaponFx[\s\S]*?\n\}/);
   const anims = ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow']
-    .filter(w => new RegExp(`WANIM_${w}|anim.*${w}|${w}.*Anim|drawWeapon.*${w}`, 'i').test(SRC) || SRC.includes(`wanim === '${w}'`) || SRC.includes(`case '${w}'`));
-  fun('F25', 'every weapon has its own attack animation', anims.length >= 6 || /function drawWeaponFx/.test(SRC),
+    .filter(w => fx && new RegExp(`w\\.kind === '${w}'`).test(fx[0]));
+  fun('F25', 'every weapon has its own attack animation branch', anims.length >= 6,
     `weapons with a distinct anim branch: ${anims.length}/6`);
 }
 

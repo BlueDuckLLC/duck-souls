@@ -100,5 +100,41 @@
     "claim": "the board reports the real run, not the capped one",
     "pass": true,
     "detail": "pluma stat: \"6 slain (1 ranged) / 99 cut (5 counted)\""
+  },
+  {
+    "id": "F20",
+    "claim": "holding a weapon replaces the base slash (weapon owns the attack)",
+    "pass": true,
+    "detail": "slash dispatches to the held weapon"
+  },
+  {
+    "id": "F21",
+    "claim": "no signature weapon breaks the DPS band (0.6x..1.4x median)",
+    "pass": true,
+    "detail": "dps 5.9/7.1/7.1/6.5/5.6/6.3; median 6.5, max 1.11x, min 0.86x"
+  },
+  {
+    "id": "F22",
+    "claim": "all six weapons respect walls, not just the base sword",
+    "pass": true,
+    "detail": "losBlocked refs in weaponAttack: 2"
+  },
+  {
+    "id": "F23",
+    "claim": "the spore-bow refills so it stays a weapon, not a consumable",
+    "pass": true,
+    "detail": "spore ammo regenerates"
+  },
+  {
+    "id": "F24",
+    "claim": "the hammer smash has a cooldown (no permastun spam)",
+    "pass": true,
+    "detail": "smash gated by a cooldown"
+  },
+  {
+    "id": "F25",
+    "claim": "every weapon has its own attack animation branch",
+    "pass": true,
+    "detail": "weapons with a distinct anim branch: 6/6"
   }
 ]
