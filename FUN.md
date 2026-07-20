@@ -92,3 +92,29 @@ the skill's canon lists but round 1 never tested. Panel: the onboarding/cadence 
 - F17 not yet simulated — FAIL (no method)
 - F18 death screen has no progress/goal — FAIL
 - F19 plant tutorial mentions 0/4 — FAIL
+
+## GREEN (round 2, 2026-07-20)
+
+Fixes shipped; structural half re-verified 17/17. Behavioral half (bot.js) confirmed the
+direction on the metrics the fixes target — full multi-session medians pending a smarter
+pathfinding bot (the current bot stalls on the new column/buttress geometry, so its
+distinct-mutator and cadence counts undercount a human's; visual verification of all 7
+architectures + telegraphed-only damage stands in until then).
+
+| id | RED | fix |
+|----|-----|-----|
+| F13 telegraphed damage | 0% | ducks damage ONLY on the announced lunge (contactHit) |
+| F14 reward cadence | key/chest/tools gated past floor 1 | key+chest+2 tools from floor 1 |
+| F15 decision density | 60% (thin) | 2 tools/floor + guaranteed decision-mutator room |
+| F16 distinct mutators | 1 seen, 80% plain | shuffled bag, roll 0.55->0.65, no-repeat-till-exhausted |
+| F17 TOLL hidden 40% | uniform-with-replacement | bag draw guarantees appearance |
+| F18 second-run hook | none | death screen: MEMORIES n/15 + nearest literal goal |
+| F19 tutorial debt | 0/4 mechanics taught | +4 plant nodes: doors/stairs/swap/no-heal |
+
+Plus the operator's architecture ask, which IS the F16 variety fix: 7 room types with
+distinct size+shape, vine-grown walls, living cave/garden vines.
+
+### Honest limit recorded
+The behavioral bot is a weak pathfinder; it undercounts variety/cadence on the new
+geometry. The numbers above are directional, verified by construction + screenshots, not
+by 10-session medians. A stronger bot is owed before claiming F14-F17 as measured greens.
