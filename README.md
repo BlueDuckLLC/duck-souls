@@ -61,7 +61,9 @@ TOLL it is also your wallet — AURUM grades circulation, not thrift.
 One hands slot (Atari Adventure law). C uses what you hold: GUN (6 shots — PLUMA counts
 ranged kills at one-third honor), NINJA STAR (pierces, bounces twice, lies where it falls),
 HOTDOG (full heal, 4s digesting slow — VELOX bills it as idle; MORS's curse makes it taste
-of nothing), LANTERN (double torch), KEY -> CHEST (cross-room delivery, AURUM's jackpot),
+of nothing), LANTERN (double torch + secret dowsing), BOMB (x3 — slides, sputters, levels
+enemies AND pillar walls, which stay leveled; ignores IRONFRONT's iron faces; stand back
+or eat 1 damage), KEY -> CHEST (cross-room delivery, AURUM's jackpot),
 CHALICE (deliver it to the stairs untouched: +300 and the whole pantheon warms). And THE
 BAT — Adventure's own — swoops in, steals what you hold, and flies it to another room.
 Cut it down or chase it.

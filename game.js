@@ -68,6 +68,7 @@ const ITEMS = {
   lantern: { label: 'LANTERN', hint: 'lights the dark', ci: 5 },
   key: { label: 'KEY', hint: 'opens the chest', ci: 5 },
   chalice: { label: 'CHALICE', hint: 'deliver it untouched', ci: 5 },
+  bomb: { label: 'BOMB', hint: 'C throws. stand back.', ci: 7 },
 };
 
 // ---------- rng ----------
@@ -187,6 +188,7 @@ const SPR = {
   key: ['##   ', '#####', '#  # '],
   chalice: ['# #', '###', ' # ', '###'],
   chest: ['#####', '#o$o#', '#####', ' ### '],
+  bomb: [' + ', '###', '###'],
 };
 function blit(spr, x, y, ci, bright, flipX) {
   const h = spr.length;
@@ -445,7 +447,8 @@ function genFloor() {
   }
   const toolRoom = [...rooms.values()][(rng() * rooms.size) | 0];
   const [tx, ty] = spot(toolRoom);
-  toolRoom.items.push({ x: tx, y: ty, kind: ['gun', 'star', 'hotdog', 'lantern'][(rng() * 4) | 0], slot: true, ph: 0, ammo: 6 });
+  const toolKind = ['gun', 'star', 'hotdog', 'lantern', 'bomb'][(rng() * 5) | 0];
+  toolRoom.items.push({ x: tx, y: ty, kind: toolKind, slot: true, ph: 0, ammo: toolKind === 'bomb' ? 3 : 6 });
   if (G.depth % 3 === 0) {
     const cr = fights.length ? fights[(rng() * fights.length) | 0] : start;
     const [gx, gy] = spot(cr);
@@ -468,7 +471,7 @@ function enterRoom(room, fromDir) {
   G.cur = room;
   G.enemies = []; G.bolts = []; G.parts = G.parts || [];
   G.pickups = room.items || (room.items = []); // persistent: dropped items stay put
-  G.pbolts = []; G.stars = []; G.bat = null; G.hungry = null; G.pool = null; G.ordNext = 1;
+  G.pbolts = []; G.stars = []; G.bombs = []; G.bat = null; G.hungry = null; G.pool = null; G.ordNext = 1;
   G.doorOpenAt = 0;
   const woods = room.mut === 'WOODS'; // Lost Woods: no edge walls, the screen wraps
   const rng = mulberry32(room.seed);
@@ -514,7 +517,13 @@ function enterRoom(room, fromDir) {
   for (let i = 0; i < 550; i++) {
     speckles.push([X0 + 1 + rng() * (X1 - X0 - 2), Y0 + 1 + rng() * (Y1 - Y0 - 2), 0.1 + rng() * 0.25]);
   }
-  G.solid = solid; G.walls = walls; G.bars = bars; G.speckles = speckles;
+  // bombed pillar cells stay bombed
+  let wallsFinal = walls;
+  if (room.blasted && room.blasted.size) {
+    for (const k of room.blasted) { const [bcx, bcy] = k.split(',').map(Number); solid[bcy * COLS + bcx] = 0; }
+    wallsFinal = walls.filter(([wx, wy]) => !room.blasted.has(wx + ',' + wy));
+  }
+  G.solid = solid; G.walls = wallsFinal; G.bars = bars; G.speckles = speckles;
 
   if (room.type === 'treasure' && !room.entered) {
     G.floorStats.treasureFound++;
@@ -535,7 +544,7 @@ function enterRoom(room, fromDir) {
   // THE TOLL: an old duck and his prices instead of a fight
   if (room.mut === 'TOLL' && !room.spawned) {
     room.spawned = true; room.cleared = true;
-    const wares = [['hotdog', 80], ['heart', 60], ['star', 90], ['lantern', 70], ['gun', 120], ['sword', 150]];
+    const wares = [['hotdog', 80], ['heart', 60], ['star', 90], ['lantern', 70], ['gun', 120], ['sword', 150], ['bomb', 100]];
     room.goods = [];
     for (let i = 0; i < 2; i++) {
       const [k, base] = wares.splice((rng() * wares.length) | 0, 1)[0];
@@ -675,6 +684,11 @@ function useItem() {
     G.shake = Math.max(G.shake, 1.2);
     tone(900, 120, 0.09, 'square', 0.12);
     if (p.held.ammo <= 0) { p.held = null; msg('GUN EMPTY', 1, 1.2); }
+  } else if (k === 'bomb') {
+    p.held.ammo--;
+    G.bombs.push({ x: p.x + p.dir.x * 2, y: p.y + p.dir.y * 2, vx: p.dir.x * 16, vy: p.dir.y * 16, fuse: 1.2 });
+    tone(400, 250, 0.08, 'triangle', 0.06);
+    if (p.held.ammo <= 0) { p.held = null; msg('LAST BOMB', 1, 1.2); }
   } else if (k === 'star') {
     G.stars.push({ x: p.x, y: p.y, vx: p.dir.x * 28, vy: p.dir.y * 28, bounces: 0, hitCd: 0 });
     p.held = null;
@@ -835,6 +849,55 @@ function killEnemy(e, how = 'melee') {
   burst(e.x, e.y, 0, 6, 14, 0.5);
   G.shake = Math.max(G.shake, 2.5);
   SFX.kill();
+}
+
+// the bomb does not respect iron faces, walls, or personal space
+function explode(bx, by) {
+  const R = 9;
+  const p = G.player;
+  burst(bx, by, 2, 30, 30, 0.8);
+  burst(bx, by, 5, 20, 20, 0.6);
+  burst(bx, by, 0, 12, 40, 0.4);
+  G.shake = 6; G.flash = Math.max(G.flash, 0.35); G.hitstop = 0.06;
+  A.startGlitch(1, 0.35, 'pop');
+  tone(50, 18, 0.6, 'sawtooth', 0.22);
+  tone(160, 25, 0.4, 'square', 0.12, 0.02);
+  for (const e of G.enemies) {
+    if (e.dead || e.telegraph > 0) continue;
+    const d = Math.hypot(e.x - bx, e.y - by);
+    if (d < R) { // no ironBlocked check: explosions do not care which way you face
+      e.hp -= 3; e.flash = 0.2;
+      e.kx = (e.x - bx) / (d || 1) * 60; e.ky = (e.y - by) / (d || 1) * 60;
+      if (e.hp <= 0) killEnemy(e, 'ranged');
+    }
+  }
+  if (G.hungry && Math.hypot(G.hungry.x - bx, G.hungry.y - by) < R) {
+    if (G.hungry.swallowed) { G.pickups.push({ x: G.hungry.x, y: G.hungry.y, kind: G.hungry.swallowed.kind, ammo: G.hungry.swallowed.ammo, slot: true, ph: 0, cd: 0.5 }); msg('IT SPITS IT OUT', 5, 1.6); }
+    G.floorStats.kills++; G.run.kills++; G.floorStats.rangedKills++;
+    G.hungry = null;
+  }
+  if (G.bat && Math.hypot(G.bat.x - bx, G.bat.y - by) < R) {
+    if (G.bat.carrying) G.pickups.push({ x: G.bat.x, y: G.bat.y, kind: G.bat.carrying.kind, ammo: G.bat.carrying.ammo, slot: true, ph: 0, cd: 0.6 });
+    G.floorStats.kills++; G.run.kills++;
+    G.bat = null;
+  }
+  if (Math.hypot(p.x - bx, p.y - by) < R * 0.75 && p.invulnT <= 0 && p.dashT <= 0) hurtPlayer({ x: bx, y: by });
+  // pillar walls crumble and STAY crumbled (border walls hold)
+  G.cur.blasted = G.cur.blasted || new Set();
+  const gone = new Set();
+  for (let y = Math.max(Y0 + 1, (by - R) | 0); y <= Math.min(Y1 - 1, (by + R) | 0); y++) {
+    for (let x = Math.max(X0 + 1, (bx - R) | 0); x <= Math.min(X1 - 1, (bx + R) | 0); x++) {
+      if (G.solid[y * COLS + x] && Math.hypot(x - bx, y - by) < R * 0.8) {
+        G.solid[y * COLS + x] = 0;
+        const k = x + ',' + y;
+        G.cur.blasted.add(k); gone.add(k);
+        burst(x, y, 1, 2, 12, 0.5);
+      }
+    }
+  }
+  if (gone.size) G.walls = G.walls.filter(([wx, wy]) => !gone.has(wx + ',' + wy));
+  // the grass does not survive
+  if (G.cur.tufts) G.cur.tufts = G.cur.tufts.filter(tf => Math.hypot(tf.x - bx, tf.y - by) >= R);
 }
 
 function roomCleared() {
@@ -1056,6 +1119,18 @@ function updatePlay(dt) {
   }
   G.stars = G.stars.filter(s2 => !s2.dead);
 
+  // bombs: slide, sputter, level the room
+  for (const bm of G.bombs) {
+    const nbx = bm.x + bm.vx * dt, nby = bm.y + bm.vy * dt;
+    if (!solidAt(nbx, bm.y)) bm.x = nbx; else bm.vx = 0;
+    if (!solidAt(bm.x, nby)) bm.y = nby; else bm.vy = 0;
+    bm.vx *= Math.pow(0.05, dt); bm.vy *= Math.pow(0.05, dt);
+    wrapWoods(bm);
+    bm.fuse -= dt;
+    if (bm.fuse <= 0) { bm.dead = true; explode(bm.x, bm.y); }
+  }
+  G.bombs = G.bombs.filter(bm => !bm.dead);
+
   // THE BAT (Atari Adventure's finest): steals what you hold, flies it elsewhere
   if (G.bat) {
     const b = G.bat;
@@ -1139,7 +1214,7 @@ function updatePlay(dt) {
         G.floorStats.spent += gd.price;
         if (ITEMS[gd.kind]) { // hands item
           if (p.held) G.pickups.push({ x: p.x, y: p.y, kind: p.held.kind, ammo: p.held.ammo, slot: true, ph: 0, cd: 1.2 });
-          p.held = { kind: gd.kind, ammo: gd.kind === 'gun' ? 6 : undefined };
+          p.held = { kind: gd.kind, ammo: gd.kind === 'gun' ? 6 : gd.kind === 'bomb' ? 3 : undefined };
         } else if (gd.kind === 'heart') p.hp = Math.min(p.maxhp, p.hp + 1);
         else if (gd.kind === 'sword') p.swords++;
         msg('"THANK YOU." (-' + gd.price + ')  AURUM APPROVES', 5, 2);
@@ -1498,8 +1573,14 @@ function drawWorld() {
     px(b.x, b.y, 4, 1);
     px(b.x - b.vx * 0.02, b.y - b.vy * 0.02, 4, 0.5);
   }
-  // player bullets + ninja stars
+  // player bullets + ninja stars + bombs
   for (const b of G.pbolts) { px(b.x, b.y, 0, 1); px(b.x - b.vx * 0.015, b.y - b.vy * 0.015, 2, 0.6); }
+  for (const bm of G.bombs || []) {
+    blit(SPR.bomb, bm.x - 1, bm.y - 1, 7, 0.9, false);
+    // the fuse sputters faster as it shortens
+    if (((G.t * (4 + (1.4 - bm.fuse) * 14)) | 0) % 2 === 0) px(bm.x + (Math.random() - 0.5), bm.y - 2, 5, 1);
+    if (bm.fuse < 0.35) rect(bm.x - 1, bm.y - 1, 3, 3, 0, 0.5 + 0.5 * Math.sin(G.t * 40)); // white panic flash
+  }
   for (const s2 of G.stars) {
     const sp = ((G.t * 14) | 0) % 2;
     if (sp) { px(s2.x - 1, s2.y, 3, 1); px(s2.x + 1, s2.y, 3, 1); px(s2.x, s2.y, 0, 1); }

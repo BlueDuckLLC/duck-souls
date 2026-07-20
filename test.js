@@ -118,7 +118,7 @@ for (const stats of [base, perfect, awful]) {
     t(`MUT ${key} consumed by game.js (${uses} refs)`, uses >= 2);
   }
   // challenge objects all reachable in code
-  for (const kind of ['gun', 'star', 'hotdog', 'lantern', 'key', 'chalice']) {
+  for (const kind of ['gun', 'star', 'hotdog', 'lantern', 'key', 'chalice', 'bomb']) {
     const uses = src.split(`'${kind}'`).length - 1;
     t(`item ${kind} wired into game.js (${uses} refs)`, uses >= 2);
   }
