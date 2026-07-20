@@ -121,7 +121,7 @@ const ITEMS = {
   bomb: { label: 'BOMB', hint: 'C throws. stand back.', ci: 7 },
   // the six signature weapons — each a distinct feel (chosen in the armory at run start)
   hammer: { label: 'HAMMER', hint: 'hold X: charge & SMASH', ci: 7, weapon: true, melee: true },
-  whip: { label: 'WHIP', hint: 'X: long, wild, no close', ci: 2, weapon: true, melee: true },
+  whip: { label: 'WHIP', hint: 'hold X: wind, release: CRACK', ci: 2, weapon: true, melee: true },
   rapier: { label: 'RAPIER', hint: 'X: fast precise stab', ci: 3, weapon: true, melee: true },
   boomerang: { label: 'BOOMERANG', hint: 'X: throw & return', ci: 5, weapon: true },
   flail: { label: 'FLAIL', hint: 'orbits; X: front sweep', ci: 8, weapon: true, melee: true },
@@ -132,7 +132,7 @@ const WEAPONS = ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'];
 // dmg × (multi hits) / cd = single-target DPS; kept in a 0.6..1.4× median band.
 const WEAPON_STATS = {
   hammer: { dmg: 5, cd: 0.85, reach: 10, ci: 7, multi: 1 },   // 5.9 dps, but AoE + stun
-  whip: { dmg: 3, cd: 0.42, reach: 13, ci: 2, multi: 1 },     // 7.1 dps, dead-zone + jitter
+  whip: { dmg: 3, cd: 0.42, reach: 26, ci: 2, multi: 1 },     // 7.1 dps, physical chain: tip-speed damage
   rapier: { dmg: 1, cd: 0.14, reach: 5, ci: 3, multi: 1 },    // 7.1 dps, tiny reach
   boomerang: { dmg: 2, cd: 0.62, reach: 12, ci: 5, multi: 2 },// 6.5 dps, hits both legs
   flail: { dmg: 2, cd: 0.36, reach: 7, ci: 8, multi: 1 },     // 5.6 dps, front-arc, no aim
@@ -1871,7 +1871,7 @@ function updatePlay(dt) {
   // X/SPACE is the ATTACK button. A held weapon OWNS it (its own hit + animation);
   // bare-handed (or holding a non-weapon) you get the base sword. No free sword underneath.
   const atkPressed = (keys['x'] || keys[' ']) && !(p.jellyT > 0);
-  if (wpn) { if (heldK !== 'hammer') { if (atkPressed) weaponAttack(heldK); } }
+  if (wpn) { if (heldK !== 'hammer' && heldK !== 'whip') { if (atkPressed) weaponAttack(heldK); } }
   else if (atkPressed) slash();
 
   // HAMMER: hold X to charge, release to smash (its "attack" is the charge)
@@ -1880,6 +1880,50 @@ function updatePlay(dt) {
     else if (p.charging) { if (p.atkCd <= 0) hammerSmash(Math.min(1, p.chargeT / 1.2)); p.charging = false; p.chargeT = 0; }
     if (p.charging) { vx *= 0.6; vy *= 0.6; if (Math.random() < p.chargeT * 0.3) G.shake = Math.max(G.shake, p.chargeT * 1.5); }
   } else { p.charging = false; p.chargeT = 0; }
+  // WHIP: a verlet chain (Castlevania III grammar). Idle it DANGLES; hold X and it
+  // whirls overhead building wind; release and it CRACKS across the screen — the TIP's
+  // velocity is the weapon (slow chain near your hands can't hurt: the dead zone, physical).
+  if (heldK === 'whip') {
+    if ((keys['x'] || keys[' ']) || p.whipCrackT > 0) { vx *= 0.55; vy *= 0.55; } // the brandish costs your legs (SME: commitment)
+    if (!p.whipChain) { p.whipChain = []; for (let i = 0; i < 14; i++) p.whipChain.push({ x: p.x - i, y: p.y, px: p.x - i, py: p.y, pin: i === 0 }); }
+    const wch = p.whipChain;
+    wch[0].x = p.x; wch[0].y = p.y; wch[0].px = p.x; wch[0].py = p.y;
+    if (atkPressed && !(p.whipCrackT > 0)) { // WIND: whirl overhead, building power
+      p.whipWind = Math.min(1, (p.whipWind || 0) + dt * 1.3);
+      const wa = G.t * (9 + p.whipWind * 12);
+      const tip = wch[wch.length - 1];
+      tip.px = tip.x; tip.py = tip.y;
+      tip.x += (p.x + Math.cos(wa) * (7 + p.whipWind * 9) - tip.x) * dt * 14;
+      tip.y += (p.y + Math.sin(wa) * (5 + p.whipWind * 6) - tip.y) * dt * 14;
+      stepChain(wch, dt, 0, 6);
+      if (Math.random() < p.whipWind * 0.25) px(p.x + (Math.random() - 0.5) * 16, p.y + (Math.random() - 0.5) * 10, 2, 0.4);
+      G.shake = Math.max(G.shake, p.whipWind * 0.6);
+    } else if ((p.whipWind || 0) > 0.12) { // RELEASE: the crack
+      const pow = 40 + p.whipWind * 70;
+      wch.forEach((pt2, i) => { if (pt2.pin) return; const k = i / wch.length; pt2.px = pt2.x - p.dir.x * pow * k / 60; pt2.py = pt2.y - p.dir.y * pow * k * 0.8 / 60; });
+      p.whipCrackT = 0.4; p.whipWindAt = p.whipWind; p.whipWind = 0;
+      tone(1700, 180, 0.12, 'sawtooth', 0.13); G.shake = Math.max(G.shake, 2.5);
+    } else if (!(p.whipCrackT > 0)) { stepChain(wch, dt, 0, 26); } // idle: gravity dangle (jelly)
+    if (p.whipCrackT > 0) { // the crack unrolls: tip is a flying hurt-point
+      p.whipCrackT -= dt;
+      stepChain(wch, dt, p.dir.x * 55, p.dir.y * 42 + 6);
+      const tip = wch[wch.length - 1];
+      const tipSpd = Math.hypot(tip.x - tip.px, tip.y - tip.py) * 60;
+      for (const e of G.enemies) {
+        if (e.telegraph > 0) continue;
+        if (tipSpd > 14 && Math.hypot(e.x - tip.x, e.y - tip.y) < e.r + 2.2 && !losBlocked(p.x, p.y, tip.x, tip.y)) {
+          const dmg2 = WEAPON_STATS.whip.dmg + (p.whipWindAt >= 0.99 ? 1 : 0);
+          e.hp -= dmg2; e.flash = 0.15; e.kx = (e.x - p.x) * 3; e.ky = (e.y - p.y) * 3;
+          fw('crackle', tip.x, tip.y, 2);
+          G.hitstop = 0.06; G.shake = Math.max(G.shake, 3);
+          tone(2400, 250, 0.07, 'square', 0.12); // the crack CONNECTS (SME: payoff)
+          if (e.hp <= 0) killEnemy(e, 'melee');
+          p.whipCrackT = Math.min(p.whipCrackT, 0.08);
+        }
+      }
+      if (p.whipCrackT <= 0 && tipSpd > 25) tone(2200, 400, 0.05, 'square', 0.06); // the snap
+    }
+  } else p.whipChain = null;
   // FLAIL: a head orbits you, sweeping enemies IN FRONT (you must face the threat)
   if (heldK === 'flail') {
     p.orbitA += dt * 6.5;
@@ -3295,6 +3339,17 @@ function drawWorld() {
       const ang = i / 22 * Math.PI * 2 + G.t * 0.8, rr = pc.r * (0.4 + 0.5 * ((i * 7) % 10) / 10);
       px(pc.x + Math.cos(ang) * rr, pc.y + Math.sin(ang) * rr * 0.7, 4, 0.5 * a * (0.5 + 0.5 * Math.sin(G.t * 4 + i)));
     }
+  }
+  // the whip chain, always visible while held: dangling, whirling, or cracking
+  if (p.whipChain) {
+    p.whipChain.forEach((pt2, i) => {
+      const spd2 = Math.hypot(pt2.x - pt2.px, pt2.y - pt2.py) * 60;
+      const bri = 0.35 + Math.min(0.65, spd2 / 45) + (i === p.whipChain.length - 1 ? 0.2 : 0);
+      px(pt2.x, pt2.y, i === p.whipChain.length - 1 ? 0 : 2, bri);
+      if (i > 0) { const pa = p.whipChain[i - 1]; px((pa.x + pt2.x) / 2, (pa.y + pt2.y) / 2, 2, bri * 0.7); } // link bridges (SME: legibility at speed)
+      if (spd2 > 30) px(pt2.x - (pt2.x - pt2.px), pt2.y - (pt2.y - pt2.py), 2, bri * 0.4);
+    });
+    if (p.whipWind > 0.99) px(p.x, p.y - 5, 5, 0.7 + 0.3 * Math.sin(G.t * 20)); // full wind spark
   }
   // each weapon draws its OWN color-matched attack animation
   drawWeaponFx(p);
