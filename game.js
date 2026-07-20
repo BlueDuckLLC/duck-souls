@@ -1465,7 +1465,8 @@ function roomCleared() {
   }
 }
 
-// ---------- THE BOSSES: three original nightmares, every 3rd floor ----------
+// ---------- THE BOSSES: SEVEN nightmares, every floor. Same orb-break verb, but each differs
+// in HOW you earn the hit (env/mirror/fast/summoner/refractor/gravity/duo). Gates live in boss.js. --
 // Ritual: key -> chest -> POTION -> trance -> the fight. Phase logic lives in boss.js
 // (pure, certified); each form = unique sprite + 2 of the boss's 3 attacks + orb weakpoints.
 const BOSSES = [
@@ -3165,15 +3166,16 @@ function drawBestiary(dt) {
     A.text(46, yy + 1, name, (ENEMIES[key] || { ci: 2 }).ci, 1);
     A.text(46, yy + 3, homage, 1, 0.55);
   });
-  // the three bosses, silhouetted until felled
-  A.text(96, 12, 'THE NIGHTMARES (every 3rd floor)', 8, 0.8);
+  // the seven nightmares, silhouetted until felled — 2 columns so all 7 fit in 90 rows
+  A.text(96, 10, 'THE NIGHTMARES (every floor)', 8, 0.8);
   BOSSES.forEach((bd, i) => {
     const met = G.ledger['felled_' + bd.id];
-    const y = 16 + i * 16;
-    if (met) { blit(bd.sprites[0], 100, y, bd.ci, 0.9, false); A.text(100, y + 7, bd.name, bd.ci, 1); }
+    const col = (i / 4) | 0, row = i % 4;
+    const x = 98 + col * 32, y = 14 + row * 17;
+    if (met) { blit(bd.sprites[0], x, y, bd.ci, 0.9, false); A.text(x, y + 7, bd.name, bd.ci, 1); }
     else {
-      for (let j = 0; j < 24; j++) px(100 + (j * 7) % 14, y + (j * 3) % 5, 1, Math.random() * 0.4);
-      A.text(100, y + 7, '? ? ?  (unfelled)', 1, 0.5);
+      for (let j = 0; j < 24; j++) px(x + (j * 7) % 14, y + (j * 3) % 5, 1, Math.random() * 0.4);
+      A.text(x, y + 7, '? ? ?  (unfelled)', 1, 0.5);
     }
   });
   if (((G.t * 1.5) | 0) % 2 === 0) A.textC(87, '- any key: back -', 5);
