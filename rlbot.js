@@ -12,8 +12,8 @@
 const fs = require('fs'), path = require('path');
 const { Env, ACTIONS } = require('./headless.js');
 
-const OBS = 30, HID = 16, ACT = ACTIONS.length; // 8
-const NP = HID * OBS + HID + ACT * HID + ACT;    // param count = 632
+const OBS = new Env().obsSize, HID = 16, ACT = ACTIONS.length; // OBS derived from the env (34)
+const NP = HID * OBS + HID + ACT * HID + ACT;    // param count
 
 // deterministic gaussian (Box-Muller) off a seeded uniform so training reproduces
 function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -33,23 +33,35 @@ function _forward(theta, obs) {
   return best;
 }
 
-// one episode; returns {score, steps, kills, floors, actions[]}
+// one episode. Tracks shaping signals for combat DISCOVERY (sparse-reward bootstrap):
+// attackNear = attacked while an enemy was close; roomsCleared = distinct rooms cleared.
+const ATK = ACTIONS.indexOf('attack');
 function rollout(env, policy, seed, maxSteps = 600) {
   env.reset(seed);
-  let obs = env.observe(), steps = 0; const acts = new Array(ACT).fill(0);
+  let obs = env.observe(), steps = 0, attackNear = 0; const acts = new Array(ACT).fill(0), cleared = new Set();
   for (let i = 0; i < maxSteps; i++) {
     const a = policy(obs); acts[a]++;
+    if (a === ATK && (obs[9] || 1) < 0.16) attackNear++; // obs[9] = nearest-enemy dist (normalized)
     const r = env.step(a); obs = r.obs; steps++;
+    const G = env.sb.G; if (G.cur && G.cur.cleared) cleared.add(G.cur.gx + ',' + G.cur.gy);
     if (r.done) break;
   }
   const G = env.sb.G;
-  return { score: env.score(), steps, kills: (G.run && G.run.kills) || 0, floors: (G.run && G.run.floors) || 0, acts };
+  return { score: env.score(), steps, kills: (G.run && G.run.kills) || 0, floors: (G.run && G.run.floors) || 0, roomsCleared: cleared.size, attackNear, acts };
 }
 
-// fitness = mean over K seeded episodes of (score + survival bonus). Rewards killing + not dying.
+// fitness = mean over K seeded episodes of (score + small survival bonus). score = floors*100 +
+// kills*5, so DESCENT dominates; the survival term (capped low) just discourages suicide, so
+// passive camping can't win once the nav signal makes descent reachable.
 function fitness(env, theta, seeds) {
   const policy = obs => _forward(theta, obs);
-  let f = 0; for (const s of seeds) { const r = rollout(env, policy, s); f += r.score + 0.03 * r.steps; }
+  let f = 0; for (const s of seeds) {
+    const r = rollout(env, policy, s);
+    // descent dominates (floors*100 via score); kills*20 + room-clears*25 make combat worth the
+    // risk; attackNear is the DENSE bootstrap that lets ES discover attacking before a kill lands;
+    // tiny capped survival term discourages suicide without rewarding camping.
+    f += r.floors * 100 + r.kills * 20 + r.roomsCleared * 25 + r.attackNear * 0.4 + 0.008 * Math.min(r.steps, 350);
+  }
   return f / seeds.length;
 }
 
