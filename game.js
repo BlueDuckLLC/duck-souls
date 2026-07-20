@@ -30,14 +30,14 @@ const FX = {
 // ---------- room heuristics: THE ROOM IS WRONG ----------
 // Each key must be consumed by real gameplay code below (test.js greps for >=2 refs).
 const MUT = {
-  LOWGRAV: { name: 'LOW GRAVITY', ci: 3 },   // inertial drift, knockback floats 2x
-  SIDEGRAV: { name: 'SIDEWAYS GRAVITY', ci: 6 }, // constant wind toward one wall
-  DARK: { name: 'PITCH DARK', ci: 8 },       // tiny torch + flashlight cone
-  FLICKER: { name: 'BAD WIRING', ci: 5 },    // the lights brown out on a rhythm
-  HASTE: { name: 'HASTE', ci: 2 },           // everything 1.4x
-  MOLASSES: { name: 'MOLASSES', ci: 4 },     // everything 0.7x except dash
-  SWARM: { name: 'THE SWARM', ci: 7 },       // 2x enemies at half HP
-  RUBBER: { name: 'RUBBER', ci: 0 },         // knockback tripled, walls bounce
+  LOWGRAV: { name: 'LOW GRAVITY', ci: 3, desc: 'you drift. hits float everyone.' },
+  SIDEGRAV: { name: 'SIDEWAYS GRAVITY', ci: 6, desc: 'the room pulls. watch the dust.' },
+  DARK: { name: 'PITCH DARK', ci: 8, desc: 'your light is a cone. they are still here.' },
+  FLICKER: { name: 'BAD WIRING', ci: 5, desc: 'the lights are not on your side.' },
+  HASTE: { name: 'HASTE', ci: 2, desc: 'everything is faster. everything.' },
+  MOLASSES: { name: 'MOLASSES', ci: 4, desc: 'everything is slow except your dash.' },
+  SWARM: { name: 'THE SWARM', ci: 7, desc: 'twice as many. half as sturdy.' },
+  RUBBER: { name: 'RUBBER', ci: 0, desc: 'every hit is a launch. walls bounce.' },
 };
 const mut = key => G.cur && G.cur.mut === key;
 // held-item glyphs for HUD + floor rendering
@@ -462,6 +462,7 @@ function enterRoom(room, fromDir) {
   if (room.mut && !room.mutSeen) {
     room.mutSeen = true;
     msg('THE ROOM IS WRONG: ' + MUT[room.mut].name, MUT[room.mut].ci, 2.6);
+    msg(MUT[room.mut].desc, 1, 2.6);
     A.startGlitch(0.8, 0.35);
     tone(80, 40, 0.5, 'sawtooth', 0.1);
   }
@@ -535,7 +536,8 @@ function heldKind() { return G.player.held ? G.player.held.kind : null; }
 
 function useItem() {
   const p = G.player;
-  if (!p.held || G.state !== 'play') return;
+  if (G.state !== 'play') return;
+  if (!p.held) { msg('EMPTY HANDS', 1, 0.8); return; }
   const k = p.held.kind;
   if (k === 'gun') {
     p.held.ammo--;
@@ -979,6 +981,7 @@ function nextFloor() {
     s: 18 + Math.random() * 40, ci: [3, 6, 8, 0][(Math.random() * 4) | 0],
   }));
   tone(120, 700, 1.0, 'sawtooth', 0.06);
+  A.startGlitch(0.7, 0.3, 'pop');
 }
 
 // ---------- key routing ----------
@@ -1189,8 +1192,11 @@ function drawHud() {
   A.text(2, 0, 'DUCK SOULS', 1);
   A.text(14, 0, 'FLOOR ' + G.depth, 5);
   A.text(24, 0, 'HP [' + hearts + ']', p.hp <= 1 ? 7 : 0);
-  const dash = p.dashCd <= 0 ? 'DASH READY' : 'DASH ....';
-  A.text(38, 0, dash, p.dashCd <= 0 ? 3 : 1);
+  if (p.dashCd <= 0) A.text(38, 0, 'DASH READY', 3);
+  else { // live cooldown bar
+    const frac = Math.max(0, Math.min(1, 1 - p.dashCd / (st.dashCd + 0.13)));
+    A.text(38, 0, 'DASH [' + '#'.repeat(Math.round(frac * 5)) + '-'.repeat(5 - Math.round(frac * 5)) + ']', 1);
+  }
   A.text(52, 0, 'KILLS ' + G.run.kills, 2);
   A.text(64, 0, 'SEED ' + G.seed.toString(16).toUpperCase(), 1, 0.6);
   A.text(80, 0, 'BEST ' + G.best, 1, 0.6);
@@ -1210,10 +1216,15 @@ function drawHud() {
   A.text(2, 2, heldTxt, p.held ? ITEMS[p.held.kind].ci : 1, p.held ? 1 : 0.5);
   if (G.cur.mut) A.text(46, 2, '[ ' + MUT[G.cur.mut].name + ' ]', MUT[G.cur.mut].ci, 0.8 + 0.2 * Math.sin(G.t * 3));
   if (p.digestT > 0) A.text(72, 2, 'DIGESTING ' + p.digestT.toFixed(1), 2, 0.8);
-  // minimap: rooms as boxes
+  // minimap: # you, > stairs, $ treasure/chest, = cleared, blank unknown
   let mm = '';
   const cur = G.cur;
-  for (const r of G.rooms.values()) mm += (r === cur ? '[#]' : r.cleared ? '[=]' : '[ ]');
+  for (const r of G.rooms.values()) {
+    const g = r === cur ? '#' : r.type === 'stairs' && r.entered ? '>' :
+      (r.chest && !r.chest.opened && r.entered) || r.type === 'treasure' ? '$' :
+        r.cleared && r.entered ? '=' : r.entered ? '.' : ' ';
+    mm += '[' + g + ']';
+  }
   A.text(COLS - mm.length - 2, 2, mm, 1, 0.6);
   // messages
   let my = 7;
@@ -1227,7 +1238,7 @@ function drawHud() {
 
 function drawIntro(dt) {
   G.introT = (G.introT || 0) + dt;
-  plasma(G.t * 0.08, 0.1, [6, 8, 1]);
+  plasma(G.t * 0.08, 0.18, [6, 8, 1]);
   G.introGl = G.introGl || 0;
   let done = 0;
   INTRO_LINES.forEach((line, i) => {
@@ -1266,7 +1277,7 @@ function drawTitle() {
   bigText(80, 26, 'SOULS', 2, 7, 0.95, 1.1);
   // dim the plasma behind the menu block so text pops
   S.globalAlpha = 0.72; S.fillStyle = '#000';
-  S.fillRect(22, 38, 116, 40);
+  S.fillRect(22, 38, 116, 44);
   A.textC(40, 'a fast-paced roguelite judged by a pantheon', 0);
   A.textC(42, 'every frame renders through a live video->ASCII filter', 1, 0.7);
   // pantheon disposition
