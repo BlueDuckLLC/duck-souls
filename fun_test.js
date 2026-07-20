@@ -275,11 +275,13 @@ const has = re => re.test(SRC);
   // at ALL depths, or it becomes guaranteed unavoidable damage.
   {
     const inv = ENEM ? Object.entries(ENEM).filter(([, d]) => d.invuln) : [];
+    // read the bounce archetype's actual homing nudge from source (not a stale assumption)
+    const nudgeM = SRC.match(/case 'bounce'[\s\S]*?e\.vx = e\.bvx \+ dx \/ d(?: \* ([0-9.]+))?;/);
+    const nudge = nudgeM ? parseFloat(nudgeM[1] || '1') : 2;
     let bad = null;
     for (const [k, d] of inv) {
-      // otto's effective speed includes a homing nudge (+2 in the bounce archetype)
-      const eff = spdAt(d.spd, 10) + 2;
-      if (eff >= playerBase) bad = `${k} = ${eff.toFixed(1)} vs player ${playerBase} at depth 10`;
+      const eff = spdAt(d.spd, 10) + nudge; // bvx magnitude = spd, plus the homing nudge
+      if (eff >= playerBase) bad = `${k} = ${eff.toFixed(1)} vs player ${playerBase} at depth 10 (nudge ${nudge})`;
     }
     fun('F27', 'the invulnerable enemy can always be outrun (it herds, never guarantees a hit)',
       inv.length > 0 && !bad, bad || (inv.length ? 'invulnerable enemies stay slower' : 'no invulnerable enemy found'));

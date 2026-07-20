@@ -132,3 +132,12 @@ SPLITTER (Asteroids — halves on death), INFLATER (Dig Dug), DIVER (Galaga swoo
 herder, only avoidable), BURNER (Dragon's Lair flash-zone), and **the PRIME SLINKY** — a
 segmented string-snake whose spin cadence is driven by consecutive prime numbers. Deeper
 floors unlock more, faster, nastier. Every lethal move is telegraphed (F2/F13 honesty holds).
+
+## The Legend of Zelda (1986, top-down) roster + DANK SOULS
+
+Eight more enemies homage the first top-down Zelda: OCTOROK (wanders, spits rocks), MOBLIN
+(spear chaser), TEKTITE (erratic hopping spider), GIBDO (slow mummy tank, 8 HP), ROPE
+(aligned-lunge snake), LEEVER (burrows underground, heaves up near you — telegraphed),
+DARKNUT (armored — frontal hits bounce off its shield, flank it with the dash), and PEAHAT
+(a spinning flower, invulnerable while whirling, vulnerable only when it lands). 24 new
+enemies total. The game is now branded **DANK SOULS** (the repo/URL stay duck-souls).

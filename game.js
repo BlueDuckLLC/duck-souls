@@ -101,7 +101,8 @@ function losBlocked(x0, y0, x1, y1) {
   return false;
 }
 function ironBlocked(e, ax, ay) {
-  if (!mut('IRONFRONT') || e.faceA === undefined) return false;
+  // frontal hits bounce off iron faces (IRONFRONT room) AND off a Darknut's shield — flank it
+  if ((!mut('IRONFRONT') && !e.shield) || e.faceA === undefined) return false;
   const d = Math.hypot(ax - e.x, ay - e.y) || 1;
   return ((ax - e.x) / d) * Math.cos(e.faceA) + ((ay - e.y) / d) * Math.sin(e.faceA) > 0.45;
 }
@@ -216,6 +217,7 @@ const FONT = {
   I: ['#####', '  #  ', '  #  ', '  #  ', '#####'],
   K: ['#   #', '#  # ', '###  ', '#  # ', '#   #'],
   L: ['#    ', '#    ', '#    ', '#    ', '#####'],
+  N: ['#   #', '##  #', '# # #', '#  ##', '#   #'],
   O: [' ### ', '#   #', '#   #', '#   #', ' ### '],
   S: [' ####', '#    ', ' ### ', '    #', '#### '],
   U: ['#   #', '#   #', '#   #', '#   #', ' ### '],
@@ -259,6 +261,15 @@ const SPR = {
   otto: [[' :) ', '####', '####']],                           // Berzerk Otto (a grinning bouncer)
   burner: [['  #  ', ' ### ', '#####', ' ### ']],             // Dragon's Lair flash-burner
   slinky: [['@']],                                            // prime slinky segment (drawn as a chain)
+  // --- Zelda 1 (top-down) sprites ---
+  octorok: [[' ## ', '#oo#', '####', '# # ']],                // Octorok
+  moblin: [[' ^^ ', '#oo#', '####', '/##\\']],                // Moblin (snout + spear)
+  tektite: [['# #', '#o#', '/ \\']],                          // Tektite (spider)
+  gibdo: [['####', '#oo#', '####', '####', '#  #']],          // Gibdo (mummy, tall)
+  rope: [['#o~~~', ' ####']],                                 // Rope (snake)
+  leever: [[' ## ', '#oo#', ' ## ']],                         // Leever (surfaced)
+  darknut: [['####', '#oo#', '#||#', '#  #']],                // Darknut (armored, shield bars)
+  peahat: [[' \\|/ ', '-#o#-', ' /|\\ ']],                    // Peahat (spinning flower)
   bat: [
     ['#   #', '#####', '#o#o#'],
     ['     ', '#####', '#o#o#'],
@@ -897,9 +908,18 @@ const ENEMIES = {
   lobber: { arch: 'lob', ci: 7, hp: 3, spd: 2, r: 2.6, at: 4, cost: 3, homage: 'Missile Command' },
   waller: { arch: 'wall', ci: 6, hp: 3, spd: 7, r: 2.2, at: 5, cost: 3, homage: 'Tron' },
   bubbler: { arch: 'shoot', ci: 3, hp: 2, spd: 3, r: 2.2, at: 4, cost: 3, homage: 'Bubble Bobble', bubble: true },
-  otto: { arch: 'bounce', ci: 7, hp: 99, spd: 9, r: 2.4, at: 6, cost: 4, homage: 'Berzerk', invuln: true },
+  otto: { arch: 'bounce', ci: 7, hp: 99, spd: 6, r: 2.4, at: 6, cost: 4, homage: 'Berzerk', invuln: true },
   burner: { arch: 'burn', ci: 7, hp: 4, spd: 0, r: 2.6, at: 5, cost: 3, homage: "Dragon's Lair" },
   slinky: { arch: 'slink', ci: 5, hp: 5, spd: 8, r: 2.0, at: 3, cost: 4, homage: 'a prime slinky', segments: 8 },
+  // --- The Legend of Zelda (1986, top-down) roster ---
+  octorok: { arch: 'shoot', ci: 2, hp: 2, spd: 4, r: 2.2, at: 2, cost: 2, homage: 'Zelda: Octorok' },
+  moblin: { arch: 'chase', ci: 4, hp: 3, spd: 6, r: 2.4, at: 3, cost: 2, homage: 'Zelda: Moblin' },
+  tektite: { arch: 'hop', ci: 8, hp: 2, spd: 0, r: 2.0, at: 2, cost: 2, homage: 'Zelda: Tektite' },
+  gibdo: { arch: 'chase', ci: 1, hp: 8, spd: 3, r: 2.6, at: 4, cost: 3, homage: 'Zelda: Gibdo (mummy tank)' },
+  rope: { arch: 'dive', ci: 7, hp: 2, spd: 7, r: 2.0, at: 3, cost: 2, homage: 'Zelda: Rope (snake)' },
+  leever: { arch: 'burrow', ci: 5, hp: 3, spd: 6, r: 2.2, at: 4, cost: 3, homage: 'Zelda: Leever' },
+  darknut: { arch: 'chase', ci: 6, hp: 4, spd: 5, r: 2.4, at: 5, cost: 3, homage: 'Zelda: Darknut (shielded)', shield: true },
+  peahat: { arch: 'peahat', ci: 4, hp: 3, spd: 5, r: 2.2, at: 5, cost: 3, homage: 'Zelda: Peahat (spins invuln)' },
 };
 const ENEMY_KEYS = Object.keys(ENEMIES);
 // small primes drive the slinky's turn rhythm (operator's "random prime generator" spin)
@@ -913,6 +933,7 @@ function spawnOne(type, rng, place, room) {
   base.hp0 = base.hp;
   if (d.bubble) base.bubble = true;
   if (d.invuln) base.invuln = true;
+  if (d.shield) base.shield = true; // Darknut blocks frontal hits (via ironBlocked)
   if (type === 'slinky') { base.seg = []; base.primeI = (rng() * PRIMES.length) | 0; base.turnT = 0; base.ang = rng() * Math.PI * 2; for (let s = 0; s < (d.segments); s++) base.seg.push({ x: pos.x, y: pos.y }); }
   if (d.arch === 'shoot' || d.arch === 'lob' || d.arch === 'march') base.cd = 1 + rng();
   if (room.mut === 'SWARM') base.hp = Math.max(1, Math.ceil(base.hp / 2));
@@ -1383,7 +1404,6 @@ function roomCleared() {
 // fires projectiles. Every lethal move is telegraphed (windup/aim) to keep F2/F13 honest.
 function arcadeAI(e, dt, dx, dy, d, p) {
   e.st -= dt;
-  if (e.invuln) e.hp = e.hp0; // Otto cannot be killed, only avoided
   const toward = () => { e.vx = dx / d * e.spd; e.vy = dy / d * e.spd; };
   switch (e.arch) {
     case 'chase': toward(); break;
@@ -1428,9 +1448,9 @@ function arcadeAI(e, dt, dx, dy, d, p) {
       if (e.wallT <= 0) { e.wallT = 0.25; G.patches.push({ x: e.x, y: e.y, r: 1.6, t: 3, wall: true }); }
       break;
     case 'shoot': arcadeShoot(e, dt, dx, dy, d, 0, false); { const off = d - 20; e.vx = dx / d * e.spd * Math.sign(off); e.vy = dy / d * e.spd * Math.sign(off); } break;
-    case 'bounce': // invulnerable herder (Berzerk Otto)
+    case 'bounce': // invulnerable herder (Berzerk Otto) — must stay outrunnable (can't be killed)
       if (!e.bvx) { e.bvx = (Math.random() < 0.5 ? 1 : -1) * e.spd; e.bvy = (Math.random() < 0.5 ? 1 : -1) * e.spd; }
-      e.vx = e.bvx + dx / d * 2; e.vy = e.bvy + dy / d * 2;
+      e.vx = e.bvx + dx / d; e.vy = e.bvy + dy / d; // gentle homing nudge only
       if (e.x < X0 + 3 || e.x > X1 - 3) e.bvx *= -1;
       if (e.y < Y0 + 3 || e.y > Y1 - 3) e.bvy *= -1;
       break;
@@ -1439,6 +1459,18 @@ function arcadeAI(e, dt, dx, dy, d, p) {
       if (e.state === 'seek' && d < 18 && e.st <= 0) { e.state = 'windup'; e.st = 0.5; }
       else if (e.state === 'windup' && e.st <= 0) { e.state = 'burn'; e.st = 0.4; }
       else if (e.state === 'burn') { if (d < 10 && !p.dashT) hurtPlayer(e); if (e.st <= 0) { e.state = 'seek'; e.st = 1.2; } }
+      break;
+    case 'burrow': // Leever: hides underground, surfaces near you (telegraphed heave)
+      if (e.state === 'seek') { // burrowed: track under the sand, no damage
+        e.vx = dx / d * e.spd * 0.7; e.vy = dy / d * e.spd * 0.7; e.buried = true;
+        if (d < 16 && e.st <= 0) { e.state = 'windup'; e.st = 0.4; e.vx = e.vy = 0; }
+      } else if (e.state === 'windup') { e.buried = true; e.vx = e.vy = 0; if (e.st <= 0) { e.state = 'up'; e.st = 2.5; e.buried = false; } }
+      else { e.buried = false; e.vx = dx / d * e.spd; e.vy = dy / d * e.spd; if (e.st <= 0) { e.state = 'seek'; e.st = 0.5; } }
+      break;
+    case 'peahat': // spins (invulnerable) while moving, LANDS periodically (vulnerable, telegraphed)
+      if (e.state !== 'landed') { e.spinInvuln = true; e.vx = Math.cos(G.t * 3 + e.x) * e.spd; e.vy = Math.sin(G.t * 2.4 + e.y) * e.spd; if (e.st <= 0) { e.state = 'landing'; e.st = 0.4; } }
+      if (e.state === 'landing') { e.vx *= 0.5; e.vy *= 0.5; if (e.st <= 0) { e.state = 'landed'; e.st = 1.4; e.spinInvuln = false; } }
+      else if (e.state === 'landed') { e.vx = e.vy = 0; if (e.st <= 0) { e.state = 'seek'; e.st = 2 + Math.random() * 2; } }
       break;
     case 'slink': slinkAI(e, dt, dx, dy, d); break;
     default: toward();
@@ -1633,7 +1665,14 @@ function updatePlay(dt) {
       }
     }
     // arcade-roster archetypes (set velocity / fire, then fall through to shared movement)
-    if (e.arch && ENEMIES[e.type]) { arcadeAI(e, dt, dx, dy, d, p); }
+    if (e.arch && ENEMIES[e.type]) {
+      arcadeAI(e, dt, dx, dy, d, p);
+      // single-point invulnerability: Otto (always), Peahat (spinning), Leever (buried).
+      // Freeze hp at the value it held when invulnerability began — chip damage from a prior
+      // vulnerable window persists, but nothing lands while invulnerable.
+      const invNow = e.invuln || e.spinInvuln || e.buried;
+      if (invNow) { if (!e.wasInv) e.invHp = e.hp; e.hp = e.invHp; e.wasInv = true; } else e.wasInv = false;
+    }
     else if (e.type === 'duck') {
       e.st -= dt;
       if (e.state === 'seek') {
@@ -1673,7 +1712,7 @@ function updatePlay(dt) {
     const wfx = G.windDir ? G.windDir[0] * 6 : 0, wfy = G.windDir ? G.windDir[1] * 6 : 0;
     tryMove(e, e.x + (e.vx * st.ts + e.kx + wfx) * dt, e.y + (e.vy * st.ts + e.ky + wfy) * dt, e.type === 'bat' ? 0.8 : 1.6);
     wrapWoods(e);
-    if (contactHit(e, p.x, p.y)) hurtPlayer(e);
+    if (!e.buried && contactHit(e, p.x, p.y)) hurtPlayer(e); // a buried Leever can't touch you
   }
   // enemy separation
   for (let i = 0; i < G.enemies.length; i++) for (let j = i + 1; j < G.enemies.length; j++) {
@@ -2195,7 +2234,7 @@ function drawGallery(dt) {
 
 // the credits — a scrolling scene using every animation trick in the box
 const CREDIT_LINES = [
-  '', '', 'DUCK SOULS', '', 'a fast-paced ASCII roguelite', 'judged by a pantheon', '',
+  '', '', 'DANK SOULS', '', 'a fast-paced ASCII roguelite', 'judged by a pantheon', '',
   '~', '', 'EVERYTHING YOU SAW', 'was pixels drawn to a 160x90 canvas', 'and read back as characters',
   'luminance picks the glyph', 'hue picks the color', '', '~', '',
   'THE PANTHEON', 'VELOX, god of haste', 'PLUMA, the duck-mother',
@@ -2217,7 +2256,7 @@ function drawCredits(dt) {
     const y = i * 2 - scroll + ROWS;
     if (y < 2 || y > ROWS - 2) return;
     if (line === '~') { for (let x = 60; x < 100; x++) px(x, y, 4, 0.4 + 0.3 * Math.sin(x * 0.3 + G.t * 4)); return; }
-    const big = line === 'DUCK SOULS' || line === 'BlueDuck LLC';
+    const big = line === 'DANK SOULS' || line === 'BlueDuck LLC';
     A.textC(y, line, big ? 5 : line === line.toUpperCase() && line.length > 2 ? 2 : 0, big ? 1 : 0.85);
   });
   // a couple of orbiting blue orbs, because that's the game now
@@ -2502,6 +2541,17 @@ function drawWorld() {
     if (e.state === 'burn') bright = 1.4 + Math.sin(G.t * 40) * 0.4; // Dragon's Lair flash
     if (e.flash > 0) bright = 1.6;
     if (e.invuln) bright *= 0.6 + 0.4 * Math.sin(G.t * 8); // Otto shimmers (can't be killed)
+    // a buried Leever is just a moving mound; it heaves up (telegraph) before surfacing
+    if (e.buried) {
+      const heaving = e.state === 'windup';
+      for (let i = 0; i < (heaving ? 8 : 4); i++) px(e.x + Math.random() * 5 - 2.5, e.y + Math.random() * 3 - 1.5, e.ci, (heaving ? 0.6 : 0.25) * bright);
+      continue;
+    }
+    // a spinning Peahat is invulnerable — draw it whirling and bright; landed it dims + settles
+    if (e.type === 'peahat' && e.spinInvuln) {
+      for (let i = 0; i < 6; i++) { const a = G.t * 12 + i * 1.05; px(e.x + Math.cos(a) * 2.5, e.y + Math.sin(a) * 2, e.ci, 0.9); }
+      px(e.x, e.y, 0, 1); continue;
+    }
     // the prime slinky draws as a chain of segments, not a single sprite
     if (e.type === 'slinky' && e.seg) {
       e.seg.forEach((s, i) => { const t = i / e.seg.length; px(s.x, s.y, e.ci, (1 - t * 0.6) * bright); if (i % 2) px(s.x + 1, s.y, e.ci, (1 - t) * bright * 0.6); });
@@ -2696,7 +2746,7 @@ function drawHud() {
   // HUD orbs: filled blue O = full, spent = dim. Last one runs red and pulses.
   let orbs = '';
   for (let i = 0; i < p.maxhp; i++) orbs += i < p.hp ? 'O' : '.';
-  A.text(2, 0, 'DUCK SOULS', 1);
+  A.text(2, 0, 'DANK SOULS', 1);
   A.text(14, 0, 'FLOOR ' + G.depth, 5);
   A.text(24, 0, 'LIFE ' + orbs, p.hp <= 1 ? 7 : 6, p.hp <= 1 ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 10)) : 1);
   if (p.dashCd <= 0) A.text(38, 0, 'DASH READY', 3);
@@ -2791,7 +2841,7 @@ function drawLore(dt) {
 
 function drawTitle() {
   plasma(G.t * 0.7, 0.5, [6, 3, 8, 2]);
-  bigText(80, 14, 'DUCK', 2, 5, 0.95, 1.1);
+  bigText(80, 14, 'DANK', 2, 5, 0.95, 1.1);
   bigText(80, 26, 'SOULS', 2, 7, 0.95, 1.1);
   // dim the plasma behind the menu block so text pops
   S.globalAlpha = 0.72; S.fillStyle = '#000';

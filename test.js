@@ -136,7 +136,8 @@ for (const stats of [base, perfect, awful]) {
 
   // the arcade roster: every ENEMIES key must map to a real archetype the AI consumes
   const enemyKeys = ['grunt', 'ghost', 'hopper', 'strafer', 'rider', 'splitter', 'inflater',
-    'diver', 'marcher', 'spinner', 'lobber', 'waller', 'bubbler', 'otto', 'burner', 'slinky'];
+    'diver', 'marcher', 'spinner', 'lobber', 'waller', 'bubbler', 'otto', 'burner', 'slinky',
+    'octorok', 'moblin', 'tektite', 'gibdo', 'rope', 'leever', 'darknut', 'peahat'];
   const archMatch = src.match(/function arcadeAI[\s\S]*?\n\}/);
   const archBody = archMatch ? archMatch[0] : '';
   const usedArchs = new Set((src.match(/arch: '(\w+)'/g) || []).map(s => s.replace(/arch: '|'/g, '')));
@@ -146,11 +147,15 @@ for (const stats of [base, perfect, awful]) {
   }
   // every archetype used in ENEMIES must have a case in arcadeAI (no dead archetype)
   for (const a of usedArchs) {
-    if (['chase', 'ghost', 'hop', 'strafe', 'joust', 'split', 'dive', 'march', 'spin', 'lob', 'wall', 'shoot', 'bounce', 'burn', 'slink'].includes(a)) {
+    if (['chase', 'ghost', 'hop', 'strafe', 'joust', 'split', 'dive', 'march', 'spin', 'lob', 'wall', 'shoot', 'bounce', 'burn', 'slink', 'burrow', 'peahat'].includes(a)) {
       t(`archetype ${a} handled in arcadeAI`, archBody.includes(`case '${a}'`) || (a === 'slink' && /slinkAI/.test(src)));
     }
   }
-  t(`sixteen arcade enemies + prime slinky`, enemyKeys.length === 16 && /PRIMES = \[2, 3, 5, 7/.test(src));
+  t(`24 arcade+zelda enemies + prime slinky`, enemyKeys.length === 24 && /PRIMES = \[2, 3, 5, 7/.test(src));
+  // Zelda flavor: the Darknut's shield blocks frontal hits (reuses ironBlocked)
+  t(`darknut shield reuses ironBlocked`, /!mut\('IRONFRONT'\) && !e\.shield/.test(src));
+  // and the shield flag must actually reach the spawned entity (not just live in the table)
+  t(`spawnOne copies the shield flag onto the enemy`, /if \(d\.shield\) base\.shield = true/.test(src));
 }
 
 // lore: every memory is earned by a pure function over the lifetime ledger

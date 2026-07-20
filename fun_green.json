@@ -136,5 +136,29 @@
     "claim": "every weapon has its own attack animation branch",
     "pass": true,
     "detail": "weapons with a distinct anim branch: 6/6"
+  },
+  {
+    "id": "F26",
+    "claim": "homing enemies never outrun the player (you can always make space)",
+    "pass": true,
+    "detail": "fastest homing at depth 10: rider at 0.86x player speed"
+  },
+  {
+    "id": "F27",
+    "claim": "the invulnerable enemy can always be outrun (it herds, never guarantees a hit)",
+    "pass": true,
+    "detail": "invulnerable enemies stay slower"
+  },
+  {
+    "id": "F28",
+    "claim": "ranged/dash arcade attacks telegraph before they strike",
+    "pass": true,
+    "detail": "dive windup:true burn windup:true shoot aim:true"
+  },
+  {
+    "id": "F29",
+    "claim": "the splitter cannot exponentially explode (bounded generations)",
+    "pass": true,
+    "detail": "splitter halves for 2 generations (max ~7 bodies from one)"
   }
 ]
