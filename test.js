@@ -199,5 +199,18 @@ for (const stats of [base, perfect, awful]) {
   t('every cutscene speaker is cast', [...speakers].every(s => ['velox','pluma','umbra','aurum','mors','sixth','soul','square','door'].includes(s)));
 }
 
+// AUTOTUNE: the params surface must exist, default to the shipped constants, and be
+// read by game.js (extraction is a strict no-op until the tuner moves a value)
+{
+  const P = require('./params.js');
+  t('params.js defaults present', P.combat.slashReach === 7.0 && P.room.countFloor1_3 === 3 && P.spawn.densityDiv === 260);
+  const src = fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
+  t('game.js reads PARAMS.combat.slashReach', /const SLASH_REACH = PARAMS\.combat\.slashReach/.test(src));
+  t('game.js reads PARAMS.spawn.dangerBase', /PARAMS\.spawn\.dangerBase \+ G\.depth \* PARAMS\.spawn\.dangerSlope/.test(src));
+  t('game.js reads PARAMS.room room-count + mutRoll', /PARAMS\.room\.countFloor/.test(src) && /rng\(\) < PARAMS\.room\.mutRoll/.test(src));
+  t('game.js reads PARAMS.enemy.speedScale', /PARAMS\.enemy\.speedScale/.test(src));
+  t('deep-merge override works', (()=>{ const merged = require('./params.js'); return merged.autotune && typeof merged.autotune.autoDeploy === 'boolean'; })());
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

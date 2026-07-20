@@ -78,8 +78,8 @@ const MAX_SWORDS = 3;     // damage can't outrun enemy HP forever
 // Reach vs lunge is the core tension: the duck must out-threaten your sword (so you have
 // to dodge, not just backpedal), but not so far that melee is a coin-flip you lose.
 // Threat = LUNGE_TRAVEL + ellipse 4.2 must exceed SLASH_REACH by ~1-2 cells, not 4+.
-const SLASH_REACH = 7.0;   // 8.5 made kiting free; 6.0 made melee suicidal
-const LUNGE_MULT = 3.0, LUNGE_TIME = 0.22; // travel ~4.0 cells at depth 1 (was ~6.1)
+const SLASH_REACH = PARAMS.combat.slashReach;   // v1 default 7.0 (8.5 kiting-free, 6.0 suicidal)
+const LUNGE_MULT = PARAMS.combat.lungeMult, LUNGE_TIME = PARAMS.combat.lungeTime; // travel ~4.0 cells at d1
 // contact damage is state-aware: the lunge is what kills you, a shoulder-brush grazes
 function contactHit(e, px2, py2) {
   const dx = px2 - e.x, dy = py2 - e.y;
@@ -531,7 +531,7 @@ function floorStatsInit(roomCount) {
 // ---------- floor / room generation ----------
 function genFloor() {
   const rng = G.rng;
-  const n = G.depth >= 4 ? 4 : 3; // v10: start -> minions -> BOSS (human finding H1)
+  const n = G.depth >= 4 ? PARAMS.room.countFloor4up : PARAMS.room.countFloor1_3; // v10 + tunable
   const rooms = new Map();
   const put = (gx, gy) => rooms.set(gx + ',' + gy, { gx, gy, doors: {}, type: 'fight', cleared: false, spawned: false, entered: false, seed: (rng() * 1e9) | 0 });
   put(0, 0);
@@ -591,7 +591,7 @@ function genFloor() {
     r.items = [];
     r.arch = G.archBag.length ? G.archBag.pop() : ARCH_KEYS[(rng() * ARCH_KEYS.length) | 0];
     if (!G.archBag.length) G.archBag = shuffle(ARCH_KEYS, rng);
-    r.mut = (r.type === 'fight' || r.type === 'stairs') && rng() < 0.65 ? G.mutBag.pop() : null;
+    r.mut = (r.type === 'fight' || r.type === 'stairs') && rng() < PARAMS.room.mutRoll ? G.mutBag.pop() : null;
     if (!G.mutBag.length) G.mutBag = shuffle(Object.keys(MUT), rng);
   }
   // every floor is guaranteed one room that asks a question, not just a fight
@@ -610,7 +610,8 @@ function genFloor() {
   // challenge objects: key + chest pair from depth 2 (cross-room carrying), one tool, rare chalice
   // spawn points must respect the TARGET room's own architecture, not the current bounds
   const spot = r => {
-    const [ix2, iy2] = (ARCH[r.arch] || ARCH.CAVE).inset;
+    const insc = PARAMS.room.insetScale;
+    const ix2 = Math.min(46, Math.round((ARCH[r.arch] || ARCH.CAVE).inset[0] * insc)), iy2 = Math.min(28, Math.round((ARCH[r.arch] || ARCH.CAVE).inset[1] * insc));
     const rx0 = 1 + ix2, rx1 = COLS - 2 - ix2, ry0 = 5 + iy2, ry1 = ROWS - 2 - iy2;
     return [rx0 + 8 + rng() * Math.max(4, rx1 - rx0 - 16), ry0 + 6 + rng() * Math.max(4, ry1 - ry0 - 12)];
   };
@@ -649,7 +650,9 @@ function enterRoom(room, fromDir) {
   const woods = room.mut === 'WOODS'; // Lost Woods: no edge walls, the screen wraps
   // this room's architecture decides how big it is and what shape it takes
   const arch = ARCH[room.arch] || ARCH.CAVE;
-  const [ix, iy] = arch.inset;
+  // PARAMS.room.insetScale shapes room SIZE (>1 = tighter); clamped so the arena stays playable
+  const isc = PARAMS.room.insetScale;
+  const ix = Math.min(46, Math.round(arch.inset[0] * isc)), iy = Math.min(28, Math.round(arch.inset[1] * isc));
   X0 = 1 + ix; X1 = COLS - 2 - ix; Y0 = 5 + iy; Y1 = ROWS - 2 - iy;
   G.X0 = X0; G.X1 = X1; G.Y0 = Y0; G.Y1 = Y1; // exposed for the bot harness
   G.arch = arch;
@@ -930,7 +933,7 @@ const PRIMES = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
 function spawnOne(type, rng, place, room) {
   const d = ENEMIES[type];
   const pos = place();
-  const base = { type, arch: d.arch, x: pos.x, y: pos.y, vx: 0, vy: 0, telegraph: 0.7 + rng() * 0.4, flash: 0, kx: 0, ky: 0, state: 'seek', st: 0, ci: d.ci, r: d.r, spd: d.spd * (1 + 0.05 * G.depth) };
+  const base = { type, arch: d.arch, x: pos.x, y: pos.y, vx: 0, vy: 0, telegraph: 0.7 + rng() * 0.4, flash: 0, kx: 0, ky: 0, state: 'seek', st: 0, ci: d.ci, r: d.r, spd: d.spd * (1 + PARAMS.enemy.speedScale * G.depth) };
   base.hp = d.invuln ? d.hp : d.hp + Math.floor(G.depth / 3);
   base.hp0 = base.hp;
   if (d.bubble) base.bubble = true;
@@ -949,7 +952,7 @@ function spawnEnemies(room, rng, fromDir) {
   if (room.mut === 'SWARM') { nDucks *= 2; nBats *= 2; } // half HP applied below
   // density cap: a tiny crypt/grotto can't fairly hold a full swarm (~1 enemy / 260 cells)
   const freeCells = (X1 - X0) * (Y1 - Y0);
-  const cap = Math.max(3, Math.floor(freeCells / 260));
+  const cap = Math.max(3, Math.floor(freeCells / PARAMS.spawn.densityDiv));
   { let total = nDucks + nBats + nTurrets; if (total > cap) { const s = cap / total; nDucks = Math.max(1, Math.round(nDucks * s)); nBats = Math.round(nBats * s); nTurrets = Math.round(nTurrets * s); } }
   const p = G.player;
   const place = () => {
@@ -964,7 +967,7 @@ function spawnEnemies(room, rng, fromDir) {
   const mk = (type) => {
     const pos = place();
     const base = { type, x: pos.x, y: pos.y, vx: 0, vy: 0, telegraph: 0.7 + rng() * 0.4, flash: 0, kx: 0, ky: 0, state: 'seek', st: 0 };
-    if (type === 'duck') Object.assign(base, { hp: 3 + Math.floor(G.depth / 2), r: 3.2, spd: 5.5 + 0.5 * G.depth, ci: 2 });
+    if (type === 'duck') Object.assign(base, { hp: 3 + Math.floor(G.depth / PARAMS.enemy.hpDivDuck), r: 3.2, spd: 5.5 + 0.5 * G.depth, ci: 2 });
     if (type === 'bat') Object.assign(base, { hp: 1 + Math.floor(G.depth / 4), r: 1.8, spd: 9 + 0.4 * G.depth, ci: 8, ph: rng() * 6 });
     if (type === 'turret') Object.assign(base, { hp: 4 + Math.floor(G.depth / 3), r: 2.6, spd: 0, ci: 4, cd: 1 + rng(), aimT: 0 });
     if (room.mut === 'SWARM') base.hp = Math.max(1, Math.ceil(base.hp / 2));
@@ -978,7 +981,7 @@ function spawnEnemies(room, rng, fromDir) {
   // DANGER budget: from depth 2 on, spend a growing budget on the arcade roster, picking
   // only enemies unlocked by depth. Deeper = more/faster/nastier. Capped by room size.
   if (G.depth >= 2) {
-    let budget = 2 + G.depth * 1.4;
+    let budget = PARAMS.spawn.dangerBase + G.depth * PARAMS.spawn.dangerSlope;
     const pool = ENEMY_KEYS.filter(k => ENEMIES[k].at <= G.depth);
     let guard = 0;
     while (budget > 0 && pool.length && G.enemies.length < cap + 4 && guard++ < 40) {
@@ -1087,7 +1090,7 @@ function playerStats() {
     spd: base * ts * (p.digestT > 0 ? 0.55 : 1),
     dashSpd: base * 3.1, // dash ignores MOLASSES — in the slow room, dash is king
     dmg: 1 + p.swords + (boon('pluma') ? FX.BOON_PLUMA : 0),
-    dashCd: 0.45 * (curse('umbra') ? FX.CURSE_UMBRA : 1),
+    dashCd: PARAMS.combat.dashCd * (curse('umbra') ? FX.CURSE_UMBRA : 1),
     kb: mut('RUBBER') ? 3 : mut('LOWGRAV') ? 2 : 1, // knockback scale for everyone
   };
 }
@@ -1311,7 +1314,7 @@ function slash() {
     burst(tf.x, tf.y, 4, 5, 10, 0.35);
     const roll = Math.random();
     if (roll < 0.22) { G.run.bonus = (G.run.bonus || 0) + 2; G.parts.push({ x: tf.x, y: tf.y, vx: 0, vy: -6, ci: 5, life: 0.6, t: 0 }); }
-    else if (roll < 0.3 && !G.floorStats.grassHeart) { G.floorStats.grassHeart = true; G.pickups.push({ x: tf.x, y: tf.y, kind: 'heart', ph: 0 }); }
+    else if (roll < (0.22 + PARAMS.pacing.grassHeartChance) && !G.floorStats.grassHeart) { G.floorStats.grassHeart = true; G.pickups.push({ x: tf.x, y: tf.y, kind: 'heart', ph: 0 }); }
   }
   if (G.cur.tufts) G.cur.tufts = G.cur.tufts.filter(tf => !tf.dead);
   // the Hungry One can be cut open
@@ -1457,7 +1460,7 @@ function roomCleared() {
   if (delay > 0) msg('VELOX BARS THE DOORS', 3, delay);
   // drops (AURUM watches)
   const mult = curse('aurum') ? FX.CURSE_AURUM : (boon('aurum') ? FX.BOON_AURUM : 1);
-  if (G.rng() < 0.22 * mult) {
+  if (G.rng() < PARAMS.pacing.dropChance * mult) {
     spawnPickup(80 + (G.rng() * 20 - 10), 47 + (G.rng() * 10 - 5), ['heart', 'heart', 'sword', 'boots'][(G.rng() * 4) | 0]);
   }
 }
