@@ -1549,8 +1549,7 @@ const BOSSES = [
   },
 ];
 
-// v10: random boss every floor. Duo is excluded until its two-body logic is wired (below).
-function bossForDepth() { const pool = BOSSES.filter(x => x.mechanic !== 'duo'); return pool[(G.rng() * pool.length) | 0]; }
+function bossForDepth() { return BOSSES[(G.rng() * BOSSES.length) | 0]; } // v10: random boss every floor (all 7)
 function bossRoomKey() { for (const [k, r] of G.rooms) if (r.type === 'stairs') return k; return '0,0'; }
 
 // THE POOL BREAK: the current frame's lit cells become billiard balls — scattered,
@@ -1627,6 +1626,12 @@ function startBossFight() {
     x: (X0 + X1) / 2, y: Y0 + (Y1 - Y0) * 0.3, vx: 0, vy: 0,
     atkT: 2, atkI: 0, staggerT: 0, t: 0, hitFlash: 0,
   };
+  if (def.mechanic === 'duo') { // two bodies, each its own orb set (split-attention fight)
+    G.boss.twins = [
+      { st: Boss.newBossState(def, G.depth), x: X0 + (X1 - X0) * 0.32, y: Y0 + (Y1 - Y0) * 0.3, atkT: 1.5, atkI: 0, staggerT: 0, hitFlash: 0, side: 0 },
+      { st: Boss.newBossState(def, G.depth), x: X0 + (X1 - X0) * 0.68, y: Y0 + (Y1 - Y0) * 0.3, atkT: 2.3, atkI: 0, staggerT: 0, hitFlash: 0, side: 1 },
+    ];
+  }
   G.locked = true;
   if (G.cur.mut !== 'WOODS') for (const [bx, by] of G.bars) G.solid[by * COLS + bx] = 1;
   msg(def.name, def.ci, 3);
@@ -1637,6 +1642,7 @@ function startBossFight() {
 
 function updateBoss(dt) {
   const b = G.boss, p = G.player, def = b.def;
+  if (def.mechanic === 'duo') return updateDuo(b, dt);
   b.t += dt; b.hitFlash = Math.max(0, b.hitFlash - dt);
   if (b.st.staggered) { // form break window
     b.staggerT -= dt;
@@ -1824,6 +1830,67 @@ function bossMechDraw(b) {
   if (m === 'refractor') { for (const be of (b.beams || [])) { const c = be.reflected ? 3 : 4; px(be.x, be.y, c, 1); px(be.x - be.vx * 0.03, be.y - be.vy * 0.03, c, 0.5); } return; }
   if (m === 'gravity' && b.inverting) { for (let a = 0; a < 14; a++) { const an = a / 14 * Math.PI * 2; px(b.x + Math.cos(an) * 18, b.y + Math.sin(an) * 12, 5, 0.5 + 0.5 * Math.sin(G.t * 20)); } return; }
   if (m === 'summoner') { for (const e of (G.enemies || [])) { if (e.dead) continue; if (e.x < X0 || e.x > X1 || e.y < Y0 || e.y > Y1) A.text(Math.max(X0 + 1, Math.min(X1 - 1, e.x)), Math.max(Y0 + 1, Math.min(Y1 - 1, e.y)), '!', 5, 0.9); } return; }
+}
+
+// THE GEMINI WARDENS: two bodies, each its own orb set. A form advances only when BOTH are
+// staggered together; a lone stagger REVIVES if the partner doesn't join in time (split-attention).
+function updateDuo(b, dt) {
+  const p = G.player, def = b.def; b.t += dt;
+  const orbBonus = st => Math.max(0, Math.floor((st.depth - 3) / 3));
+  let allDefeated = true;
+  for (let ti = 0; ti < b.twins.length; ti++) {
+    const tw = b.twins[ti], partner = b.twins[1 - ti];
+    tw.hitFlash = Math.max(0, tw.hitFlash - dt);
+    if (tw.st.defeated) continue;
+    allDefeated = false;
+    if (tw.st.staggered) {
+      tw.staggerT -= dt;
+      if (Boss.duoBothStaggered(tw.st, partner.st)) { // both down together -> advance both forms
+        tw.st = Boss.endStagger(tw.st, def); partner.st = Boss.endStagger(partner.st, def);
+        tw.staggerT = 0; partner.staggerT = 0;
+        if (!tw.st.defeated) { msg('BOTH FALL - IT CHANGES', def.ci, 1.6); A.startGlitch(1, 0.4, 'pop'); SFX.die(); }
+      } else if (tw.staggerT <= 0) {           // partner never joined -> the standing one revives it
+        tw.st = { ...tw.st, staggered: false, orbs: def.forms[tw.st.form].orbs + orbBonus(tw.st) };
+        msg('THE OTHER REVIVES IT', 5, 1.2);
+      }
+      continue;
+    }
+    tw.x += Math.sin(b.t * 0.8 + ti * 3) * 6 * dt; tw.y += Math.cos(b.t * 0.6 + ti) * 3 * dt;
+    tw.x = Math.max(X0 + 10, Math.min(X1 - 10, tw.x)); tw.y = Math.max(Y0 + 8, Math.min(Y1 - 20, tw.y));
+    tw.atkT -= dt;
+    if (tw.atkT <= 0) { const atks = def.forms[tw.st.form].atk; bossAttack(atks[tw.atkI % atks.length], { x: tw.x, y: tw.y, t: b.t, st: tw.st, def }); tw.atkI++; tw.atkT = 1.6 + ti * 0.5; }
+    const orbs = Boss.orbPositions(tw.st.orbs, tw.x, tw.y, b.t);
+    for (const o of orbs) {
+      let hk = null;
+      if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hk = 'slash';
+      for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hk = 'bolt'; pb.dead = true; }
+      for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hk = 'star';
+      if (hk) {
+        tw.st = Boss.hitOrb(tw.st, def); tw.hitFlash = 0.15; p.atkT = 0;
+        burst(o.x, o.y, 6, 16, 20, 0.5); tone(900, 200, 0.12, 'square', 0.1); fw('ringlet', o.x, o.y, 6); G.shake = Math.max(G.shake, 2);
+        if (tw.st.staggered) { tw.staggerT = 1.6; msg('ONE STAGGERS - BREAK THE OTHER', 5, 1.4); G.shake = 5; fw('implode', tw.x, tw.y, def.ci); }
+        break;
+      }
+    }
+    if (Math.hypot(p.x - tw.x, p.y - tw.y) < 7 && p.invulnT <= 0 && p.dashT <= 0) hurtPlayer(tw);
+  }
+  if (allDefeated) { b.x = (X0 + X1) / 2; b.y = (Y0 + Y1) / 2; bossDefeated(); }
+}
+
+function drawDuo(b) {
+  const def = b.def;
+  for (let ti = 0; ti < b.twins.length; ti++) {
+    const tw = b.twins[ti]; if (tw.st.defeated) continue;
+    const spr = (def.twinSprites && def.twinSprites[ti]) || def.sprites[0];
+    const ci = ti === 0 ? 3 : 5; // left angular=sky, right round=vermillion (track which is which)
+    const bright = tw.st.staggered ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)) : (tw.hitFlash > 0 ? 1.5 : 0.95);
+    blit(spr, tw.x - spr[0].length / 2, tw.y - spr.length / 2, ci, bright, ti === 1);
+    const orbs = Boss.orbPositions(tw.st.orbs, tw.x, tw.y, b.t);
+    for (const o of orbs) { const sz = 0.8 + (o.depth + 1) * 0.5; rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, 6, 0.6 + (o.depth + 1) * 0.2); px(o.x, o.y - sz * 0.7, 0, 0.7 + 0.3 * Math.sin(G.t * 8)); }
+    if (tw.st.staggered) A.text(tw.x - 4, tw.y - spr.length / 2 - 2, 'STAGGERED', 5, 0.9);
+  }
+  // form pips (shared): both twins advance together
+  for (let f = 0; f < def.forms.length; f++) A.text((X0 + X1) / 2 - 3 + f * 3, Y0 + 2, f < b.twins[0].st.form ? 'x' : f === b.twins[0].st.form ? 'O' : 'o', f === b.twins[0].st.form ? 5 : 1, 0.9);
 }
 
 function bossDefeated() {
@@ -3476,7 +3543,8 @@ function drawWorld() {
     }
   }
   // THE BOSS: form sprite, floating blue orb weakpoints, stagger flash, attack telegraph
-  if (G.boss) {
+  if (G.boss && G.boss.def.mechanic === 'duo') { drawDuo(G.boss); }
+  else if (G.boss) {
     const b = G.boss, def = b.def;
     const spr = def.sprites[b.st.form];
     const stag = b.st.staggered;
