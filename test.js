@@ -17,9 +17,10 @@ function t(name, cond) {
 const base = {
   time: 40, roomCount: 5, kills: 6, interrupts: 1, dmgTaken: 1,
   dashThroughs: 2, pickups: 1, treasureFound: 1, idleT: 2, depth: 2,
+  rangedKills: 1, chestsOpened: 0, hotdogsEaten: 0, chaliceDelivered: 0, itemsStolen: 0,
 };
-const perfect = { ...base, time: 20, idleT: 0, kills: 14, interrupts: 4, dmgTaken: 0, dashThroughs: 5, pickups: 3, treasureFound: 1, depth: 6 };
-const awful = { ...base, time: 300, idleT: 60, kills: 0, interrupts: 0, dmgTaken: 6, dashThroughs: 0, pickups: 0, treasureFound: 0, depth: 1 };
+const perfect = { ...base, time: 20, idleT: 0, kills: 14, interrupts: 4, dmgTaken: 0, dashThroughs: 5, pickups: 3, treasureFound: 1, depth: 6, rangedKills: 0, chestsOpened: 1, chaliceDelivered: 0 };
+const awful = { ...base, time: 300, idleT: 60, kills: 0, interrupts: 0, dmgTaken: 6, dashThroughs: 0, pickups: 0, treasureFound: 0, depth: 1, rangedKills: 0, chestsOpened: 0 };
 
 const favor = P.defaultFavor();
 
@@ -66,6 +67,47 @@ for (const stats of [base, perfect, awful]) {
       const uses = src.split(key).length - 1;
       t(`${key} consumed by game.js (${uses} refs)`, uses >= 2);
     }
+  }
+}
+
+// PLUMA: the gun is not the beak — same kills, more ranged => strictly less honor
+{
+  const melee6 = { ...base, kills: 6, rangedKills: 0 };
+  const gun6 = { ...base, kills: 6, rangedKills: 6 };
+  const sm = P.judge(melee6, favor).find(c => c.id === 'pluma').score;
+  const sg = P.judge(gun6, favor).find(c => c.id === 'pluma').score;
+  t('pluma dishonors gun kills', sg < sm);
+}
+
+// AURUM: opening the chest raises the grade
+{
+  const noChest = { ...base, chestsOpened: 0 };
+  const chest = { ...base, chestsOpened: 1 };
+  const a0 = P.judge(noChest, favor).find(c => c.id === 'aurum').score;
+  const a1 = P.judge(chest, favor).find(c => c.id === 'aurum').score;
+  t('aurum covets the chest', a1 > a0);
+}
+
+// special verdicts derive from the stat log
+{
+  const cards = P.judge(base, favor);
+  t('chalice verdict', P.verdict(cards, { ...base, chaliceDelivered: 1 }) === 'CHALICE BEARER');
+  t('hotdog verdict', P.verdict(cards, { ...base, hotdogsEaten: 2 }) === 'HOTDOG PILGRIM');
+  t('verdict without stats still works', typeof P.verdict(cards) === 'string');
+}
+
+// no-op guard for room heuristics: every MUT key must be consumed by game.js
+// (once defining the room's rule, at least once applying it to real gameplay)
+{
+  const src = fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
+  for (const key of ['LOWGRAV', 'SIDEGRAV', 'DARK', 'FLICKER', 'HASTE', 'MOLASSES', 'SWARM', 'RUBBER']) {
+    const uses = src.split(`'${key}'`).length - 1 + src.split(`${key}:`).length - 1;
+    t(`MUT ${key} consumed by game.js (${uses} refs)`, uses >= 2);
+  }
+  // challenge objects all reachable in code
+  for (const kind of ['gun', 'star', 'hotdog', 'lantern', 'key', 'chalice']) {
+    const uses = src.split(`'${kind}'`).length - 1;
+    t(`item ${kind} wired into game.js (${uses} refs)`, uses >= 2);
   }
 }
 

@@ -44,9 +44,12 @@
       boon: { key: 'BOON_PLUMA', desc: '+1 slash damage' },
       curse: { key: 'CURSE_PLUMA', desc: '+1 duck-dragon in every room' },
       score(f) {
-        return clamp01(f.kills / (4 + f.roomCount * 1.5) + f.interrupts * 0.12);
+        // the gun is not the beak: ranged kills count at one-third honor
+        const ranged = f.rangedKills || 0;
+        const melee = Math.max(0, f.kills - ranged);
+        return clamp01((melee + ranged / 3) / (4 + f.roomCount * 1.5) + f.interrupts * 0.12);
       },
-      stat(f) { return `${f.kills} slain / ${f.interrupts} interrupted`; },
+      stat(f) { return `${f.kills} slain (${f.rangedKills || 0} ranged) / ${f.interrupts} cut`; },
       lines: {
         S: 'My children speak your name with fear. Good.', A: 'You met the beak. I honor that.',
         B: 'Adequate slaughter.', C: 'You avoid my children. They notice.',
@@ -74,9 +77,9 @@
       boon: { key: 'BOON_AURUM', desc: 'better drops on room clear' },
       curse: { key: 'CURSE_AURUM', desc: 'no drops for you' },
       score(f) {
-        return clamp01(f.pickups * 0.34 + f.treasureFound * 0.45);
+        return clamp01(f.pickups * 0.3 + f.treasureFound * 0.4 + (f.chestsOpened || 0) * 0.4 + (f.chaliceDelivered || 0) * 0.5);
       },
-      stat(f) { return `${f.pickups} taken / ${f.treasureFound} vaults found`; },
+      stat(f) { return `${f.pickups} taken / ${f.chestsOpened || 0} chest / ${f.treasureFound} vault`; },
       lines: {
         S: 'Yes. Take EVERYTHING.', A: 'A healthy appetite.',
         B: 'You left things on the floor. On the FLOOR.', C: 'Poverty is a choice you keep making.',
@@ -132,9 +135,11 @@
     velox: ['SWIFT', 'SLOW'], pluma: ['BLOODY', 'MEEK'], umbra: ['UNTOUCHED', 'BATTERED'],
     aurum: ['GREEDY', 'EMPTY-HANDED'], mors: ['DEEP', 'SHALLOW'],
   };
-  function verdict(cards) {
+  function verdict(cards, f) {
     const sorted = [...cards].sort((a, b) => b.score - a.score);
     const best = sorted[0], worst = sorted[sorted.length - 1];
+    if (f && f.chaliceDelivered) return 'CHALICE BEARER';
+    if (f && (f.hotdogsEaten || 0) >= 2) return 'HOTDOG PILGRIM';
     if (best.id === 'umbra' && best.letter === 'S') return 'UNTOUCHED';
     if (worst.score >= 0.72) return 'THE PANTHEON IS PLEASED';
     if (best.score < 0.32) return 'THE PANTHEON LOOKS AWAY';

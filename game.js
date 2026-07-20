@@ -27,6 +27,29 @@ const FX = {
   CURSE_MORS: 0,     // heart heal multiplier (hearts heal nothing)
 };
 
+// ---------- room heuristics: THE ROOM IS WRONG ----------
+// Each key must be consumed by real gameplay code below (test.js greps for >=2 refs).
+const MUT = {
+  LOWGRAV: { name: 'LOW GRAVITY', ci: 3 },   // inertial drift, knockback floats 2x
+  SIDEGRAV: { name: 'SIDEWAYS GRAVITY', ci: 6 }, // constant wind toward one wall
+  DARK: { name: 'PITCH DARK', ci: 8 },       // tiny torch + flashlight cone
+  FLICKER: { name: 'BAD WIRING', ci: 5 },    // the lights brown out on a rhythm
+  HASTE: { name: 'HASTE', ci: 2 },           // everything 1.4x
+  MOLASSES: { name: 'MOLASSES', ci: 4 },     // everything 0.7x except dash
+  SWARM: { name: 'THE SWARM', ci: 7 },       // 2x enemies at half HP
+  RUBBER: { name: 'RUBBER', ci: 0 },         // knockback tripled, walls bounce
+};
+const mut = key => G.cur && G.cur.mut === key;
+// held-item glyphs for HUD + floor rendering
+const ITEMS = {
+  gun: { label: 'GUN', hint: 'C fires', ci: 0 },
+  star: { label: 'NINJA STAR', hint: 'C throws', ci: 3 },
+  hotdog: { label: 'HOTDOG', hint: 'C eats', ci: 2 },
+  lantern: { label: 'LANTERN', hint: 'lights the dark', ci: 5 },
+  key: { label: 'KEY', hint: 'opens the chest', ci: 5 },
+  chalice: { label: 'CHALICE', hint: 'deliver it untouched', ci: 5 },
+};
+
 // ---------- rng ----------
 function mulberry32(a) {
   return function () {
@@ -106,15 +129,16 @@ const FONT = {
   Y: ['#   #', ' # # ', '  #  ', '  #  ', '  #  '],
   ' ': ['     ', '     ', '     ', '     ', '     '],
 };
-function bigText(cx, y, str, scale, ci, a) {
+function bigText(cx, y, str, scale, ci, a, wave = 0) {
   const w = str.length * 6 * scale - scale;
-  let x = Math.round(cx - w / 2);
+  let x = Math.round(cx - w / 2), li = 0;
   for (const ch of str.toUpperCase()) {
     const gl = FONT[ch] || FONT[' '];
+    const yo = wave ? Math.sin(G.t * 2.4 + li * 0.75) * wave : 0;
     for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
-      if (gl[r][c] === '#') rect(x + c * scale, y + r * scale, scale, scale, ci, a);
+      if (gl[r][c] === '#') rect(x + c * scale, y + yo + r * scale, scale, scale, ci, a);
     }
-    x += 6 * scale;
+    x += 6 * scale; li++;
   }
 }
 
@@ -136,6 +160,13 @@ const SPR = {
   heart: ['# #', '###', ' # '],
   sword: [' # ', ' # ', '###', ' # '],
   boots: ['# #', '# #', '###'],
+  gun: ['#####', '  ## ', '  #  '],
+  star: [' # ', '###', ' # '],
+  hotdog: [' ####', '#####', '#### '],
+  lantern: [' # ', '###', '###', ' # '],
+  key: ['##   ', '#####', '#  # '],
+  chalice: ['# #', '###', ' # ', '###'],
+  chest: ['#####', '#o$o#', '#####', ' ### '],
 };
 function blit(spr, x, y, ci, bright, flipX) {
   const h = spr.length;
@@ -224,7 +255,9 @@ function newRun() {
     dir: { x: 1, y: 0 }, spdMult: 1, swords: 0,
     dashT: 0, dashCd: 0, dashHadDanger: false,
     atkT: 0, atkCd: 0, invulnT: 0,
+    held: null, digestT: 0, ivx: 0, ivy: 0, chaliceClean: false,
   };
+  G.pbolts = []; G.stars = []; G.bat = null;
   G.morsUsed = false;
   G.run = { floors: 1, kills: 0, dmgTaken: 0, pickups: 0, score: 0 };
   G.state = 'play';
@@ -232,7 +265,11 @@ function newRun() {
 }
 
 function floorStatsInit(roomCount) {
-  return { time: 0, roomCount, kills: 0, interrupts: 0, dmgTaken: 0, dashThroughs: 0, pickups: 0, treasureFound: 0, idleT: 0, depth: G.depth };
+  return {
+    time: 0, roomCount, kills: 0, interrupts: 0, dmgTaken: 0, dashThroughs: 0,
+    pickups: 0, treasureFound: 0, idleT: 0, depth: G.depth,
+    rangedKills: 0, chestsOpened: 0, hotdogsEaten: 0, chaliceDelivered: 0, itemsStolen: 0,
+  };
 }
 
 // ---------- floor / room generation ----------
@@ -276,6 +313,33 @@ function genFloor() {
     const t = others[(rng() * others.length) | 0];
     t.type = 'treasure'; t.cleared = true; t.spawned = true;
   }
+  // room heuristics + persistent per-room item lists
+  const mutKeys = Object.keys(MUT);
+  for (const r of rooms.values()) {
+    r.items = [];
+    r.mut = (r.type === 'fight' || r.type === 'stairs') && rng() < 0.55
+      ? mutKeys[(rng() * mutKeys.length) | 0] : null;
+  }
+  // challenge objects: key + chest pair from depth 2 (cross-room carrying), one tool, rare chalice
+  const spot = r => [X0 + 10 + rng() * (X1 - X0 - 20), Y0 + 8 + rng() * (Y1 - Y0 - 16)];
+  const fights = [...rooms.values()].filter(r => r.type === 'fight');
+  if (G.depth >= 2 && fights.length >= 2) {
+    const ka = fights[(rng() * fights.length) | 0];
+    let cb = fights[(rng() * fights.length) | 0];
+    if (cb === ka) cb = fights[(fights.indexOf(ka) + 1) % fights.length];
+    const [kx, ky] = spot(ka);
+    ka.items.push({ x: kx, y: ky, kind: 'key', slot: true, ph: 0 });
+    const [cx, cy] = spot(cb);
+    cb.chest = { x: cx, y: cy, opened: false };
+  }
+  const toolRoom = [...rooms.values()][(rng() * rooms.size) | 0];
+  const [tx, ty] = spot(toolRoom);
+  toolRoom.items.push({ x: tx, y: ty, kind: ['gun', 'star', 'hotdog', 'lantern'][(rng() * 4) | 0], slot: true, ph: 0, ammo: 6 });
+  if (G.depth % 3 === 0) {
+    const cr = fights.length ? fights[(rng() * fights.length) | 0] : start;
+    const [gx, gy] = spot(cr);
+    cr.items.push({ x: gx, y: gy, kind: 'chalice', slot: true, ph: 0 });
+  }
   G.rooms = rooms;
   G.floorStats = floorStatsInit(rooms.size);
   G.player.x = 80; G.player.y = 47;
@@ -285,7 +349,9 @@ function genFloor() {
 
 function enterRoom(room, fromDir) {
   G.cur = room;
-  G.enemies = []; G.bolts = []; G.pickups = []; G.parts = G.parts || [];
+  G.enemies = []; G.bolts = []; G.parts = G.parts || [];
+  G.pickups = room.items || (room.items = []); // persistent: dropped items stay put
+  G.pbolts = []; G.stars = []; G.bat = null;
   G.doorOpenAt = 0;
   const rng = mulberry32(room.seed);
   // walls + pillars
@@ -342,12 +408,38 @@ function enterRoom(room, fromDir) {
   }
   G.locked = !room.cleared && G.enemies.length > 0;
   if (G.locked) for (const [x, y] of G.bars) G.solid[y * COLS + x] = 1;
+
+  // dust motes: ambient drift, or wind-driven under SIDEWAYS GRAVITY
+  G.windDir = null;
+  if (room.mut === 'SIDEGRAV') {
+    const dirs2 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    G.windDir = dirs2[room.seed % 4];
+  }
+  G.motes = [];
+  for (let i = 0; i < 42; i++) {
+    G.motes.push({
+      x: X0 + 2 + rng() * (X1 - X0 - 4), y: Y0 + 2 + rng() * (Y1 - Y0 - 4),
+      vx: (rng() - 0.5) * 1.5, vy: (rng() - 0.5) * 1.5,
+    });
+  }
+  // Adventure's item-stealing bat
+  if (G.depth >= 2 && room.type === 'fight' && rng() < 0.2) {
+    G.bat = { x: rng() < 0.5 ? X0 + 2 : X1 - 2, y: Y0 + 6 + rng() * 20, ph: rng() * 6, carrying: null, hp: 1, leaveT: 9 };
+  }
+  // announce the room's wrongness
+  if (room.mut && !room.mutSeen) {
+    room.mutSeen = true;
+    msg('THE ROOM IS WRONG: ' + MUT[room.mut].name, MUT[room.mut].ci, 2.6);
+    A.startGlitch(0.8, 0.35);
+    tone(80, 40, 0.5, 'sawtooth', 0.1);
+  }
 }
 
 function spawnEnemies(room, rng, fromDir) {
   let nDucks = 1 + Math.min(G.depth, 4) + (curse('pluma') ? FX.CURSE_PLUMA : 0);
   let nBats = G.depth >= 2 ? 1 + ((rng() * Math.min(G.depth, 3)) | 0) : 0;
   let nTurrets = G.depth >= 3 ? 1 + (G.depth >= 5 ? 1 : 0) : 0;
+  if (room.mut === 'SWARM') { nDucks *= 2; nBats *= 2; } // half HP applied below
   const p = G.player;
   const place = () => {
     for (let tries = 0; tries < 50; tries++) {
@@ -364,6 +456,7 @@ function spawnEnemies(room, rng, fromDir) {
     if (type === 'duck') Object.assign(base, { hp: 3, r: 3.2, spd: 5.5 + 0.5 * G.depth, ci: 2 });
     if (type === 'bat') Object.assign(base, { hp: 1, r: 1.8, spd: 9 + 0.4 * G.depth, ci: 8, ph: rng() * 6 });
     if (type === 'turret') Object.assign(base, { hp: 4, r: 2.6, spd: 0, ci: 4, cd: 1 + rng() });
+    if (room.mut === 'SWARM') base.hp = Math.max(1, Math.ceil(base.hp / 2));
     G.enemies.push(base);
   };
   for (let i = 0; i < nDucks; i++) mk('duck');
@@ -394,11 +487,46 @@ function burst(x, y, ci, n, spd, life) {
 // ---------- combat / update ----------
 function playerStats() {
   const p = G.player;
+  const ts = mut('HASTE') ? 1.4 : mut('MOLASSES') ? 0.7 : 1; // room time-scale
+  const base = 14 * p.spdMult * (boon('velox') ? FX.BOON_VELOX : 1);
   return {
-    spd: 14 * p.spdMult * (boon('velox') ? FX.BOON_VELOX : 1),
+    ts,
+    spd: base * ts * (p.digestT > 0 ? 0.55 : 1),
+    dashSpd: base * 3.1, // dash ignores MOLASSES — in the slow room, dash is king
     dmg: 1 + p.swords + (boon('pluma') ? FX.BOON_PLUMA : 0),
     dashCd: 0.45 * (curse('umbra') ? FX.CURSE_UMBRA : 1),
+    kb: mut('RUBBER') ? 3 : mut('LOWGRAV') ? 2 : 1, // knockback scale for everyone
   };
+}
+
+function heldKind() { return G.player.held ? G.player.held.kind : null; }
+
+function useItem() {
+  const p = G.player;
+  if (!p.held || G.state !== 'play') return;
+  const k = p.held.kind;
+  if (k === 'gun') {
+    p.held.ammo--;
+    G.pbolts.push({ x: p.x + p.dir.x * 2.5, y: p.y + p.dir.y * 2.5, vx: p.dir.x * 34, vy: p.dir.y * 34 });
+    G.shake = Math.max(G.shake, 1.2);
+    tone(900, 120, 0.09, 'square', 0.12);
+    if (p.held.ammo <= 0) { p.held = null; msg('GUN EMPTY', 1, 1.2); }
+  } else if (k === 'star') {
+    G.stars.push({ x: p.x, y: p.y, vx: p.dir.x * 28, vy: p.dir.y * 28, bounces: 0, hitCd: 0 });
+    p.held = null;
+    tone(500, 900, 0.08, 'triangle', 0.07);
+  } else if (k === 'hotdog') {
+    const heal = curse('mors') ? FX.CURSE_MORS : 1;
+    if (heal > 0) { p.hp = p.maxhp; msg('HOTDOG: FULL HP. VELOX IS DISGUSTED.', 2, 2.2); }
+    else msg('MORS: THE HOTDOG TASTES OF NOTHING', 1, 2);
+    p.digestT = 4;
+    G.floorStats.hotdogsEaten++;
+    G.floorStats.idleT += 4; // VELOX bills digestion as idling
+    p.held = null;
+    SFX.pickup();
+  } else {
+    msg(ITEMS[k].label + ': ' + ITEMS[k].hint, ITEMS[k].ci, 1.2);
+  }
 }
 
 function hurtPlayer(from) {
@@ -407,9 +535,12 @@ function hurtPlayer(from) {
   p.hp -= 1;
   G.run.dmgTaken++; G.floorStats.dmgTaken++;
   p.invulnT = 1.0;
+  p.chaliceClean = false; // the chalice felt that
   G.shake = 3; G.flash = 0.18; G.hitstop = 0.09;
+  A.startGlitch(0.9, 0.3, 'chroma');
+  const st = playerStats();
   const kb = Math.hypot(p.x - from.x, p.y - from.y) || 1;
-  p.kx = (p.x - from.x) / kb * 30; p.ky = (p.y - from.y) / kb * 30;
+  p.kx = (p.x - from.x) / kb * 30 * st.kb; p.ky = (p.y - from.y) / kb * 30 * st.kb;
   SFX.hurt();
   if (p.hp <= 0) {
     if (boon('mors') && !G.morsUsed && FX.BOON_MORS > 0) {
@@ -423,7 +554,7 @@ function hurtPlayer(from) {
 }
 
 function die() {
-  G.run.score = G.run.floors * 100 + G.run.kills * 10;
+  G.run.score = G.run.floors * 100 + G.run.kills * 10 + (G.run.bonus || 0);
   if (G.run.score > G.best) { G.best = G.run.score; localStorage.setItem(LS_BEST, G.best); }
   G.epitaph = P.epitaph({ ...G.run, score: G.run.score }, G.best);
   G.state = 'dead'; G.deadT = 0;
@@ -446,24 +577,41 @@ function slash() {
     if (dot < 0.35) continue;
     e.hp -= st.dmg; e.flash = 0.15; hitAny = true;
     if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
-    e.kx = dx / (d || 1) * 40; e.ky = dy / (d || 1) * 40;
+    e.kx = dx / (d || 1) * 40 * st.kb; e.ky = dy / (d || 1) * 40 * st.kb;
     burst(e.x, e.y, e.ci, 8, 18, 0.4);
-    if (e.hp <= 0) killEnemy(e);
+    if (e.hp <= 0) killEnemy(e, 'melee');
+  }
+  // the thieving bat can be cut down
+  const b = G.bat;
+  if (b) {
+    const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy);
+    if (d < 8.5 && (dx * p.dir.x + dy * p.dir.y) / (d || 1) > 0.35) {
+      if (b.carrying) { G.pickups.push({ x: b.x, y: b.y, kind: b.carrying.kind, ammo: b.carrying.ammo, slot: true, ph: 0, cd: 0.6 }); msg('IT DROPPED YOUR ' + ITEMS[b.carrying.kind].label, 5, 1.6); }
+      burst(b.x, b.y, 5, 18, 20, 0.6);
+      G.floorStats.kills++; G.run.kills++;
+      G.bat = null; hitAny = true;
+      SFX.kill();
+    }
   }
   if (hitAny) { G.hitstop = 0.05; G.shake = Math.max(G.shake, 1.5); SFX.hit(); }
 }
 
-function killEnemy(e) {
+function killEnemy(e, how = 'melee') {
   e.dead = true;
   G.run.kills++; G.floorStats.kills++;
-  burst(e.x, e.y, e.ci, 22, 22, 0.7);
-  burst(e.x, e.y, 0, 8, 14, 0.5);
+  if (how === 'ranged') G.floorStats.rangedKills++;
+  // dissolve down the density ramp instead of popping
+  const spr = SPR[e.type] ? SPR[e.type][0] : null;
+  if (spr) G.parts.push({ dissolve: spr, x: e.x - spr[0].length / 2, y: e.y - spr.length / 2, ci: e.ci, flip: e.vx > 0.5, t: 0, life: 0.55 });
+  burst(e.x, e.y, e.ci, 16, 22, 0.7);
+  burst(e.x, e.y, 0, 6, 14, 0.5);
   G.shake = Math.max(G.shake, 2.5);
   SFX.kill();
 }
 
 function roomCleared() {
   G.cur.cleared = true;
+  A.startGlitch(0.6, 0.25, 'pop');
   const delay = curse('velox') ? FX.CURSE_VELOX : 0;
   G.doorOpenAt = G.t + delay;
   if (delay > 0) msg('VELOX BARS THE DOORS', 3, delay);
@@ -492,7 +640,7 @@ function updatePlay(dt) {
   let vx, vy;
   if (p.dashT > 0) {
     p.dashT -= dt;
-    vx = p.dashDir.x * st.spd * 3.1; vy = p.dashDir.y * st.spd * 3.1;
+    vx = p.dashDir.x * st.dashSpd; vy = p.dashDir.y * st.dashSpd;
     G.parts.push({ x: p.x, y: p.y, vx: 0, vy: 0, ci: 3, life: 0.25, t: 0, ghost: true });
     for (const e of G.enemies) if (!e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 4) p.dashHadDanger = true;
     for (const b of G.bolts) if (Math.hypot(b.x - p.x, b.y - p.y) < 3) p.dashHadDanger = true;
@@ -500,10 +648,25 @@ function updatePlay(dt) {
   } else {
     vx = iv.x * st.spd; vy = iv.y * st.spd;
   }
-  // knockback decay
-  p.kx = (p.kx || 0) * Math.pow(0.001, dt); p.ky = (p.ky || 0) * Math.pow(0.001, dt);
+  // LOW GRAVITY: velocity is chased, not set — icy inertial drift
+  if (mut('LOWGRAV') && p.dashT <= 0) {
+    const lerp = Math.min(1, dt * 3.2);
+    p.ivx += (vx - p.ivx) * lerp; p.ivy += (vy - p.ivy) * lerp;
+    vx = p.ivx; vy = p.ivy;
+  } else { p.ivx = vx; p.ivy = vy; }
+  // SIDEWAYS GRAVITY: the room pulls
+  if (G.windDir) { vx += G.windDir[0] * 6; vy += G.windDir[1] * 6; }
+  // knockback decay (floats farther in LOW GRAVITY)
+  const decay = mut('LOWGRAV') ? 0.01 : 0.001;
+  p.kx = (p.kx || 0) * Math.pow(decay, dt); p.ky = (p.ky || 0) * Math.pow(decay, dt);
+  const preX = p.x, preY = p.y;
   tryMove(p, p.x + (vx + p.kx) * dt, p.y + (vy + p.ky) * dt, 1.3);
+  if (mut('RUBBER')) { // walls bounce you
+    if (p.x === preX && Math.abs(vx + p.kx) > 6) { p.kx = -(p.kx + vx * 0.5) * 0.8; p.ivx = -p.ivx; }
+    if (p.y === preY && Math.abs(vy + p.ky) > 6) { p.ky = -(p.ky + vy * 0.5) * 0.8; p.ivy = -p.ivy; }
+  }
   p.invulnT -= dt; p.atkCd -= dt; p.atkT -= dt;
+  if (p.digestT > 0) p.digestT -= dt;
 
   if (keys['x'] || keys[' ']) slash();
 
@@ -541,13 +704,14 @@ function updatePlay(dt) {
         for (let i = 0; i < n; i++) {
           const spread = (i - (n - 1) / 2) * 0.25;
           const ca = Math.cos(spread), sa = Math.sin(spread);
-          G.bolts.push({ x: e.x, y: e.y, vx: (dx / d * ca - dy / d * sa) * 16, vy: (dy / d * ca + dx / d * sa) * 16 });
+          G.bolts.push({ x: e.x, y: e.y, vx: (dx / d * ca - dy / d * sa) * 16 * st.ts, vy: (dy / d * ca + dx / d * sa) * 16 * st.ts });
         }
         e.flash = 0.1;
         tone(500, 300, 0.06, 'square', 0.05);
       }
     }
-    tryMove(e, e.x + (e.vx + e.kx) * dt, e.y + (e.vy + e.ky) * dt, e.type === 'bat' ? 0.8 : 1.6);
+    const wfx = G.windDir ? G.windDir[0] * 6 : 0, wfy = G.windDir ? G.windDir[1] * 6 : 0;
+    tryMove(e, e.x + (e.vx * st.ts + e.kx + wfx) * dt, e.y + (e.vy * st.ts + e.ky + wfy) * dt, e.type === 'bat' ? 0.8 : 1.6);
     if (Math.hypot(p.x - e.x, p.y - e.y) < e.r + 1.4) hurtPlayer(e);
   }
   // enemy separation
@@ -563,7 +727,10 @@ function updatePlay(dt) {
   // unlock doors
   if (G.locked && G.cur.cleared && G.t >= G.doorOpenAt) {
     G.locked = false;
-    for (const [x, y] of G.bars) G.solid[y * COLS + x] = 0;
+    for (const [x, y] of G.bars) {
+      G.solid[y * COLS + x] = 0;
+      G.parts.push({ x, y, vx: (Math.random() - 0.5) * 4, vy: -6 - Math.random() * 5, ci: 7, life: 0.6, t: 0 });
+    }
     SFX.door();
   }
 
@@ -575,24 +742,129 @@ function updatePlay(dt) {
   }
   G.bolts = G.bolts.filter(b => !b.dead);
 
-  // pickups
+  // player bullets (gun) — ranged kills are recorded; PLUMA is watching
+  for (const b of G.pbolts) {
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (solidAt(b.x, b.y)) { b.dead = true; burst(b.x, b.y, 1, 4, 8, 0.3); continue; }
+    for (const e of G.enemies) {
+      if (e.dead || e.telegraph > 0) continue;
+      if (Math.hypot(e.x - b.x, e.y - b.y) < e.r + 0.8) {
+        b.dead = true; e.hp -= 1; e.flash = 0.15;
+        e.kx = b.vx * 0.4; e.ky = b.vy * 0.4;
+        burst(e.x, e.y, e.ci, 6, 14, 0.35);
+        if (e.hp <= 0) killEnemy(e, 'ranged');
+        break;
+      }
+    }
+    if (!b.dead && G.bat && Math.hypot(G.bat.x - b.x, G.bat.y - b.y) < 2.5) {
+      b.dead = true;
+      if (G.bat.carrying) G.pickups.push({ x: G.bat.x, y: G.bat.y, kind: G.bat.carrying.kind, ammo: G.bat.carrying.ammo, slot: true, ph: 0, cd: 0.6 });
+      burst(G.bat.x, G.bat.y, 5, 14, 18, 0.5);
+      G.floorStats.kills++; G.run.kills++; G.floorStats.rangedKills++;
+      G.bat = null; SFX.kill();
+    }
+  }
+  G.pbolts = G.pbolts.filter(b => !b.dead);
+
+  // ninja stars: pierce, bounce off walls twice, then lie where they fall
+  for (const s2 of G.stars) {
+    s2.hitCd -= dt;
+    const nx = s2.x + s2.vx * dt, ny = s2.y + s2.vy * dt;
+    let bounced = false;
+    if (solidAt(nx, s2.y)) { s2.vx = -s2.vx; bounced = true; }
+    if (solidAt(s2.x, ny)) { s2.vy = -s2.vy; bounced = true; }
+    if (bounced) { s2.bounces++; tone(700, 400, 0.05, 'square', 0.05); }
+    s2.x += s2.vx * dt; s2.y += s2.vy * dt;
+    if (s2.hitCd <= 0) for (const e of G.enemies) {
+      if (e.dead || e.telegraph > 0) continue;
+      if (Math.hypot(e.x - s2.x, e.y - s2.y) < e.r + 1) {
+        e.hp -= 2; e.flash = 0.15; s2.hitCd = 0.15;
+        burst(e.x, e.y, e.ci, 8, 16, 0.4);
+        if (e.hp <= 0) killEnemy(e, 'ranged');
+      }
+    }
+    if (s2.bounces > 2) {
+      s2.dead = true;
+      G.pickups.push({ x: s2.x, y: s2.y, kind: 'star', slot: true, ph: 0, cd: 0.4 });
+    }
+  }
+  G.stars = G.stars.filter(s2 => !s2.dead);
+
+  // THE BAT (Atari Adventure's finest): steals what you hold, flies it elsewhere
+  if (G.bat) {
+    const b = G.bat;
+    b.ph += dt * 9; b.leaveT -= dt;
+    const wantsYou = !b.carrying && p.held;
+    const tx = wantsYou ? p.x : (b.x < 80 ? X1 + 6 : X0 - 6);
+    const ty = wantsYou ? p.y : b.y + Math.sin(b.ph * 0.5) * 8;
+    const d = Math.hypot(tx - b.x, ty - b.y) || 1;
+    b.x += ((tx - b.x) / d * 13 + Math.cos(b.ph) * 4) * dt;
+    b.y += ((ty - b.y) / d * 13 + Math.sin(b.ph) * 4) * dt;
+    if (wantsYou && Math.hypot(b.x - p.x, b.y - p.y) < 2.6) {
+      b.carrying = p.held; p.held = null;
+      G.floorStats.itemsStolen++;
+      msg('THE BAT TOOK YOUR ' + ITEMS[b.carrying.kind].label + '!', 7, 2.2);
+      A.startGlitch(0.7, 0.25, 'shear');
+      tone(1200, 300, 0.3, 'sawtooth', 0.09);
+      b.leaveT = Math.min(b.leaveT, 2.5);
+    }
+    if (b.leaveT <= 0 || b.x < X0 - 5 || b.x > X1 + 5) {
+      if (b.carrying) {
+        const others = [...G.rooms.values()].filter(r => r !== G.cur);
+        const dst = others[(Math.random() * others.length) | 0] || G.cur;
+        dst.items = dst.items || [];
+        dst.items.push({ x: X0 + 10 + Math.random() * (X1 - X0 - 20), y: Y0 + 8 + Math.random() * (Y1 - Y0 - 16), kind: b.carrying.kind, ammo: b.carrying.ammo, slot: true, ph: 0 });
+        msg('THE BAT FLEW YOUR ' + ITEMS[b.carrying.kind].label + ' TO ANOTHER ROOM', 1, 2.2);
+      }
+      G.bat = null;
+    }
+  }
+
+  // the chest wants the key
+  const ch = G.cur.chest;
+  if (ch && !ch.opened) {
+    ch.msgCd = (ch.msgCd || 0) - dt;
+    if (Math.hypot(ch.x - p.x, ch.y - p.y) < 4.5) {
+      if (heldKind() === 'key') {
+        ch.opened = true; p.held = null;
+        G.floorStats.chestsOpened++;
+        G.run.bonus = (G.run.bonus || 0) + 100;
+        const jack = ['heart', Math.random() < 0.5 ? 'sword' : 'boots', 'heart'];
+        jack.forEach((k, i) => G.pickups.push({ x: ch.x - 4 + i * 4, y: ch.y + 4, kind: k, ph: 0 }));
+        burst(ch.x, ch.y, 5, 40, 26, 0.9);
+        A.startGlitch(0.8, 0.35, 'pop');
+        G.shake = 3;
+        msg('THE CHEST OPENS. AURUM HOWLS WITH JOY. +100', 5, 2.6);
+        SFX.stairs();
+      } else if (ch.msgCd <= 0) { ch.msgCd = 2.5; msg('LOCKED. THE KEY IS IN ANOTHER ROOM.', 1, 1.6); }
+    }
+  }
+
+  // pickups (instant powerups + slot items with the one-hands-slot Adventure law)
   for (const pk of G.pickups) {
     pk.ph += dt * 3;
+    if (pk.cd > 0) { pk.cd -= dt; continue; }
     if (Math.hypot(pk.x - p.x, pk.y - p.y) < 3) {
       pk.dead = true;
       G.run.pickups++; G.floorStats.pickups++;
       SFX.pickup();
       burst(pk.x, pk.y, 5, 12, 12, 0.5);
-      if (pk.kind === 'heart') {
+      if (pk.slot) {
+        if (p.held) G.pickups.push({ x: p.x, y: p.y, kind: p.held.kind, ammo: p.held.ammo, slot: true, ph: 0, cd: 1.2 });
+        p.held = { kind: pk.kind, ammo: pk.ammo };
+        if (pk.kind === 'chalice') { p.chaliceClean = true; msg('THE CHALICE. DELIVER IT UNTOUCHED.', 5, 2.4); }
+        else msg('TOOK ' + ITEMS[pk.kind].label + ' (' + ITEMS[pk.kind].hint + ')', ITEMS[pk.kind].ci, 1.6);
+      } else if (pk.kind === 'heart') {
         const heal = 1 * (curse('mors') ? FX.CURSE_MORS : 1);
         if (heal > 0) { p.hp = Math.min(p.maxhp, p.hp + heal); msg('+1 HP', 7, 1); }
         else msg('MORS: NOTHING', 1, 1.4);
       }
-      if (pk.kind === 'sword') { p.swords++; msg('SWORD +1 DMG', 0, 1.4); }
-      if (pk.kind === 'boots') { p.spdMult *= 1.08; msg('BOOTS +SPEED', 3, 1.4); }
+      else if (pk.kind === 'sword') { p.swords++; msg('SWORD +1 DMG', 0, 1.4); }
+      else if (pk.kind === 'boots') { p.spdMult *= 1.08; msg('BOOTS +SPEED', 3, 1.4); }
     }
   }
   G.pickups = G.pickups.filter(pk => !pk.dead);
+  G.cur.items = G.pickups; // keep the room's persistent list in sync
 
   // room transitions (only through open doors — bars are solid anyway)
   const mid = (X0 + X1) / 2, midY = (Y0 + Y1) / 2;
@@ -620,10 +892,26 @@ function updatePlay(dt) {
 // ---------- judgment ----------
 function beginJudgment() {
   SFX.stairs();
+  const p = G.player;
+  G.chaliceNote = null;
+  if (heldKind() === 'chalice') {
+    if (p.chaliceClean) {
+      G.floorStats.chaliceDelivered = 1;
+      G.run.bonus = (G.run.bonus || 0) + 300;
+      G.chaliceNote = 'THE CHALICE ARRIVES UNTOUCHED -- THE PANTHEON IS MOVED (+3 ALL, +300)';
+    } else {
+      G.chaliceNote = 'THE CHALICE ARRIVES TARNISHED. STILL, IT ARRIVES. (+1 ALL)';
+    }
+    p.held = null;
+  }
   G.cards = P.judge(G.floorStats, G.favor);
   G.favor = P.applyFavor(G.favor, G.cards);
+  if (G.chaliceNote) {
+    const d = G.floorStats.chaliceDelivered ? 3 : 1;
+    for (const g of P.GODS) G.favor[g.id] = Math.max(0, Math.min(100, G.favor[g.id] + d));
+  }
   localStorage.setItem(LS_FAVOR, JSON.stringify(G.favor));
-  G.verdictText = P.verdict(G.cards);
+  G.verdictText = P.verdict(G.cards, G.floorStats);
   G.state = 'judgment'; G.judgeT = 0;
   SFX.judge();
 }
@@ -632,13 +920,19 @@ function nextFloor() {
   const p = G.player;
   p.maxhp = 3 + (boon('umbra') ? FX.BOON_UMBRA : 0);
   p.hp = Math.min(p.maxhp, p.hp + 1);
-  G.state = 'play';
-  genFloor();
+  // fall between floors: fake-3D character tunnel
+  G.state = 'descend'; G.descT = 0;
+  G.streaks = Array.from({ length: 150 }, () => ({
+    a: Math.random() * Math.PI * 2, d: 1 + Math.random() * 12,
+    s: 18 + Math.random() * 40, ci: [3, 6, 8, 0][(Math.random() * 4) | 0],
+  }));
+  tone(120, 700, 1.0, 'sawtooth', 0.06);
 }
 
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
+  if (k === 'c') { useItem(); return; }
   if (G.state === 'title') { if (!['shift', 'meta', 'control', 'alt'].includes(k)) newRun(); return; }
   if (G.state === 'judgment' && G.judgeT > 0.8 && (k === ' ' || k === 'enter' || k === 'x')) { nextFloor(); return; }
   if (G.state === 'dead') {
@@ -672,9 +966,35 @@ function drawWorld() {
   const shy = G.shake > 0.3 ? ((Math.random() * G.shake * 2 - G.shake) | 0) : 0;
   S.save(); S.translate(shx, shy);
 
-  const torch = (x, y) => { const d2 = (x - p.x) ** 2 + (y - p.y) ** 2; return Math.min(1, 1.6 / (1 + d2 * 0.0016)); };
-  for (const [x, y, b] of G.speckles) px(x, y, 1, b * torch(x, y));
-  for (const [x, y] of G.walls) px(x, y, 1, 0.28 + 0.5 * torch(x, y));
+  // light model: torch + lantern + PITCH DARK flashlight cone + BAD WIRING + grit stutter
+  G.dimMul = 1;
+  if (mut('FLICKER')) {
+    const ph = G.t * 7 + (G.cur.seed % 100);
+    G.dimMul *= (Math.sin(ph) > -0.25 ? 1 : 0.28) * (0.88 + 0.12 * Math.sin(ph * 5.3));
+  }
+  if (Math.random() < 0.01) G.dimMul *= 0.55; // the dark breathes
+  const lightAt = (x, y) => {
+    const dx = x - p.x, dy = y - p.y, d2 = dx * dx + dy * dy;
+    const rad = (mut('DARK') ? 0.3 : 1) * (heldKind() === 'lantern' ? 2 : 1);
+    let l = Math.min(1, 1.55 / (1 + d2 * 0.0019 / (rad * rad)));
+    if (mut('DARK')) {
+      const d = Math.sqrt(d2) || 1;
+      const dot = (dx * p.dir.x + dy * p.dir.y) / d;
+      if (dot > 0.72) l = Math.max(l, Math.min(1, 2.4 / (1 + d2 * 0.0007)) * ((dot - 0.72) / 0.28));
+    }
+    return l * G.dimMul;
+  };
+  G.lightAt = lightAt;
+  for (const [x, y, b] of G.speckles) px(x, y, 1, b * lightAt(x, y));
+  for (const [x, y] of G.walls) px(x, y, 1, (0.28 + 0.5 * lightAt(x, y)) * (mut('DARK') ? Math.max(0.25, lightAt(x, y) * 2) : 1));
+  // dust motes drift (and show the wind under SIDEWAYS GRAVITY)
+  for (const m of G.motes) {
+    if (G.windDir) { m.vx += (G.windDir[0] * 9 - m.vx) * 0.06; m.vy += (G.windDir[1] * 9 - m.vy) * 0.06; }
+    m.x += m.vx / 60; m.y += m.vy / 60;
+    if (m.x < X0 + 1) m.x = X1 - 1; if (m.x > X1 - 1) m.x = X0 + 1;
+    if (m.y < Y0 + 1) m.y = Y1 - 1; if (m.y > Y1 - 1) m.y = Y0 + 1;
+    px(m.x, m.y, 1, (G.windDir ? 0.3 : 0.13) * (0.4 + lightAt(m.x, m.y)));
+  }
   if (G.locked) {
     const pulse = 0.6 + 0.4 * Math.sin(G.t * 8);
     for (const [x, y] of G.bars) px(x, y, 7, pulse);
@@ -683,59 +1003,112 @@ function drawWorld() {
     const pulse = 0.3 + 0.15 * Math.sin(G.t * 3);
     for (const [x, y] of G.bars) px(x, y, 3, pulse);
   }
-  // stairs
+  // stairs + orbiting glyph vortex
   if (G.cur.type === 'stairs' && G.cur.cleared) {
     const pulse = 0.5 + 0.5 * Math.sin(G.t * 4);
     rect(77, 44, 7, 6, 6, 0.35 + 0.2 * pulse);
     A.text(79, 46, '>>', 5, 0.7 + 0.3 * pulse);
+    for (let i = 0; i < 8; i++) {
+      const a = G.t * 2.6 + i * Math.PI / 4;
+      const r = 6 + Math.sin(G.t * 1.8 + i) * 2;
+      px(80.5 + Math.cos(a) * r, 47 + Math.sin(a) * r * 0.7, 6, 0.35 + 0.3 * pulse);
+    }
   }
-  // pickups
+  // the chest
+  const ch = G.cur.chest;
+  if (ch) {
+    const glow = ch.opened ? 0.35 : 0.7 + 0.3 * Math.sin(G.t * 3);
+    blit(SPR.chest, ch.x - 2.5, ch.y - 2, 5, glow * Math.max(0.3, lightAt(ch.x, ch.y) * 1.6), false);
+    if (!ch.opened && Math.random() < 0.1) px(ch.x - 3 + Math.random() * 6, ch.y - 3 + Math.random() * 5, 5, 0.5);
+  }
+  // pickups (slot items sparkle)
   for (const pk of G.pickups) {
     const bob = Math.sin(pk.ph) * 1.2;
     const spr = SPR[pk.kind];
-    const ci = pk.kind === 'heart' ? 7 : pk.kind === 'sword' ? 0 : 3;
-    blit(spr, pk.x - 1, pk.y - 1 + bob, ci, 0.9, false);
+    const ci = pk.slot ? ITEMS[pk.kind].ci : pk.kind === 'heart' ? 7 : pk.kind === 'sword' ? 0 : 3;
+    if (spr) blit(spr, pk.x - spr[0].length / 2, pk.y - spr.length / 2 + bob, ci, 0.9 * Math.max(0.3, lightAt(pk.x, pk.y) * 1.6), false);
+    if (pk.slot && Math.random() < 0.08) {
+      const a = Math.random() * Math.PI * 2;
+      G.parts.push({ x: pk.x + Math.cos(a) * 3, y: pk.y + Math.sin(a) * 2.5, vx: 0, vy: -2, ci: 5, life: 0.4, t: 0 });
+    }
   }
-  // enemies
+  // enemies (in PITCH DARK, the unseen render as faint static — but telegraphs stay honest)
   for (const e of G.enemies) {
     if (e.telegraph > 0) { // materialize static
       for (let i = 0; i < 14; i++) px(e.x + Math.random() * 8 - 4, e.y + Math.random() * 6 - 3, e.ci, Math.random() * 0.7);
       continue;
     }
-    let bright = 0.85;
-    if (e.state === 'windup') bright = 1.0 + Math.sin(G.t * 30) * 0.3; // telegraph flash
+    const lv = lightAt(e.x, e.y);
+    if (mut('DARK') && lv < 0.2 && e.state !== 'windup') {
+      for (let i = 0; i < 6; i++) px(e.x + Math.random() * 6 - 3, e.y + Math.random() * 5 - 2.5, e.ci, Math.random() * 0.16);
+      continue;
+    }
+    let bright = 0.85 * Math.max(0.35, Math.min(1, lv * 1.7));
+    if (e.state === 'windup') bright = 1.0 + Math.sin(G.t * 30) * 0.3; // telegraph flash beats darkness
     if (e.flash > 0) bright = 1.6;
     const frame = ((G.t * 6) | 0) % 2;
     const spr = SPR[e.type][frame];
     blit(spr, e.x - spr[0].length / 2, e.y - spr.length / 2, e.ci, bright, e.vx > 0.5);
+  }
+  // THE BAT (gold, so you know it's trouble)
+  if (G.bat) {
+    const b = G.bat;
+    const frame = ((G.t * 10) | 0) % 2;
+    blit(SPR.bat[frame], b.x - 2.5, b.y - 1.5, 5, 1, b.x < p.x);
+    if (b.carrying) px(b.x, b.y + 2.2, ITEMS[b.carrying.kind].ci, 0.9);
   }
   // bolts
   for (const b of G.bolts) {
     px(b.x, b.y, 4, 1);
     px(b.x - b.vx * 0.02, b.y - b.vy * 0.02, 4, 0.5);
   }
-  // player
+  // player bullets + ninja stars
+  for (const b of G.pbolts) { px(b.x, b.y, 0, 1); px(b.x - b.vx * 0.015, b.y - b.vy * 0.015, 2, 0.6); }
+  for (const s2 of G.stars) {
+    const sp = ((G.t * 14) | 0) % 2;
+    if (sp) { px(s2.x - 1, s2.y, 3, 1); px(s2.x + 1, s2.y, 3, 1); px(s2.x, s2.y, 0, 1); }
+    else { px(s2.x, s2.y - 1, 3, 1); px(s2.x, s2.y + 1, 3, 1); px(s2.x, s2.y, 0, 1); }
+  }
+  // player (breathing bob at rest, squash-stretch stepping when moving)
   const blink = p.invulnT > 0 && ((G.t * 12) | 0) % 2 === 0;
   if (!blink && G.state === 'play') {
     const ci = p.dashT > 0 ? 3 : 0;
-    rect(p.x - 1, p.y - 1, 3, 3, ci, 1);
-    px(p.x + p.dir.x * 2, p.y + p.dir.y * 2, ci, 0.8);
+    const moving = Math.hypot(p.ivx || 0, p.ivy || 0) > 2;
+    const bobY = moving ? 0 : Math.sin(G.t * 3) * 0.45;
+    if (moving && ((G.t * 9) | 0) % 2 === 0) rect(p.x - 1.5, p.y - 0.5, 4, 2, ci, 1);
+    else rect(p.x - 1, p.y - 1 + bobY, 3, 3, ci, 1);
+    px(p.x + p.dir.x * 2, p.y + p.dir.y * 2 + bobY, ci, 0.8);
+    if (p.digestT > 0 && Math.random() < 0.15) px(p.x + Math.random() * 3 - 1.5, p.y - 2.5, 2, 0.5); // hotdog steam
   }
-  // slash arc
+  // slash arc with a lagging ghost trail
   if (p.atkT > 0) {
     const prog = 1 - p.atkT / 0.13;
     const baseA = Math.atan2(p.dir.y, p.dir.x);
-    for (let da = -0.7; da <= 0.7; da += 0.12) {
-      const a = baseA + da * (1 - prog * 0.3);
-      for (let r = 3 + prog * 2; r < 8; r += 1) {
-        px(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.9, da > -0.15 && da < 0.15 ? 0 : 5, (1 - prog) * (1 - Math.abs(da) * 0.6));
+    for (const [lag, dim] of [[0, 1], [0.28, 0.35]]) {
+      const pr = prog - lag;
+      if (pr < 0) continue;
+      for (let da = -0.7; da <= 0.7; da += 0.12) {
+        const a = baseA + da * (1 - pr * 0.3);
+        for (let r = 3 + pr * 2; r < 8; r += 1) {
+          px(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r * 0.9, da > -0.15 && da < 0.15 ? 0 : 5, (1 - pr) * (1 - Math.abs(da) * 0.6) * dim);
+        }
       }
     }
   }
-  // particles
+  // particles (incl. enemy dissolve-down-the-ramp deaths)
   for (const pt of G.parts) {
     pt.t += 1 / 60;
     if (pt.ghost) { rect(pt.x - 1, pt.y - 1, 3, 3, pt.ci, (1 - pt.t / pt.life) * 0.5); continue; }
+    if (pt.dissolve) {
+      const k = pt.t / pt.life;
+      const spr = pt.dissolve;
+      for (let r = 0; r < spr.length; r++) for (let c = 0; c < spr[r].length; c++) {
+        if (spr[r][pt.flip ? spr[r].length - 1 - c : c] === ' ') continue;
+        if (((r * 31 + c * 17 + ((pt.t * 60) | 0) * 3) % 97) < k * 130) continue; // cells flake away
+        px(pt.x + c, pt.y + r + k * 2, pt.ci, (1 - k) * 0.8);
+      }
+      continue;
+    }
     pt.x += pt.vx / 60; pt.y += pt.vy / 60;
     pt.vx *= 0.94; pt.vy *= 0.94;
     px(pt.x, pt.y, pt.ci, 1 - pt.t / pt.life);
@@ -766,6 +1139,13 @@ function drawHud() {
     x += 6;
   }
   A.text(128, 0, muted ? 'MUTED' : '', 1, 0.5);
+  // row 2: what you hold + what's wrong with this room
+  const heldTxt = p.held
+    ? 'HELD: ' + ITEMS[p.held.kind].label + (p.held.kind === 'gun' ? ' x' + p.held.ammo : '') + '  [C] ' + ITEMS[p.held.kind].hint
+    : 'HELD: --';
+  A.text(2, 2, heldTxt, p.held ? ITEMS[p.held.kind].ci : 1, p.held ? 1 : 0.5);
+  if (G.cur.mut) A.text(46, 2, '[ ' + MUT[G.cur.mut].name + ' ]', MUT[G.cur.mut].ci, 0.8 + 0.2 * Math.sin(G.t * 3));
+  if (p.digestT > 0) A.text(72, 2, 'DIGESTING ' + p.digestT.toFixed(1), 2, 0.8);
   // minimap: rooms as boxes
   let mm = '';
   const cur = G.cur;
@@ -783,8 +1163,8 @@ function drawHud() {
 
 function drawTitle() {
   plasma(G.t * 0.7, 0.5, [6, 3, 8, 2]);
-  bigText(80, 14, 'DUCK', 2, 5, 0.95);
-  bigText(80, 26, 'SOULS', 2, 7, 0.95);
+  bigText(80, 14, 'DUCK', 2, 5, 0.95, 1.1);
+  bigText(80, 26, 'SOULS', 2, 7, 0.95, 1.1);
   // dim the plasma behind the menu block so text pops
   S.globalAlpha = 0.72; S.fillStyle = '#000';
   S.fillRect(22, 38, 116, 40);
@@ -800,7 +1180,8 @@ function drawTitle() {
     drawFavorBar(72, y, boon(g.id) ? g.ci : curse(g.id) ? 7 : 1, f, state);
     y += 2;
   }
-  A.textC(64, 'ARROWS / WASD move    X or SPACE slash    Z or SHIFT dash    M mute', 0, 0.8);
+  A.textC(64, 'ARROWS / WASD move   X or SPACE slash   Z or SHIFT dash   C use item   M mute', 0, 0.8);
+  A.textC(66, 'every room may be WRONG: gravity, darkness, swarms, rubber, worse', 8, 0.6);
   if (((G.t * 1.5) | 0) % 2 === 0) A.textC(70, '- PRESS ANY KEY -', 5);
   if (G.best > 0) A.textC(74, 'BEST ' + G.best, 1, 0.7);
   A.textC(86, 'BlueDuck LLC / the ducks are dragons / the dragons are ducks', 1, 0.4);
@@ -808,13 +1189,19 @@ function drawTitle() {
 
 function drawJudgment(dt) {
   G.judgeT += dt;
-  plasma(G.t * 0.15, 0.15, [6, 8, 1]);
+  plasma(G.t * 0.15, 0.15 * (1 + (G.surge || 0) * 1.6), [6, 8, 1]);
   A.textC(8, 'THE PANTHEON PASSES JUDGMENT', 0);
   A.textC(11, 'FLOOR ' + G.depth + ' CLEARED  --  ' + G.verdictText, 5);
   const pw = 31, py = 20;
   G.cards.forEach((c, i) => {
     const t = G.judgeT - i * 0.22;
     if (t < 0) return;
+    if (!c.landed) { // the god arrives: reality flinches
+      c.landed = true;
+      G.surge = 1;
+      A.startGlitch(0.55, 0.22, i % 2 ? 'chroma' : 'shear');
+      tone(180 + i * 55, 175 + i * 55, 0.3, 'sawtooth', 0.07);
+    }
     const x0 = 3 + i * pw;
     const al = Math.min(1, t * 3);
     // blackout behind the card so the plasma never muddies it
@@ -844,9 +1231,10 @@ function drawJudgment(dt) {
     }
     if (line) A.text(x0 + 2, ly, line, c.ci, al * 0.85);
     // boon/curse status line
-    if (P.boonActive({ [c.id]: c.favorAfter }, c.id)) A.text(x0 + 2, py + 31, 'BOON: ' + P.GODS[i].boon.desc, c.ci, al);
-    else if (P.curseActive({ [c.id]: c.favorAfter }, c.id)) A.text(x0 + 2, py + 31, 'CURSE: ' + P.GODS[i].curse.desc, 7, al);
+    if (P.boonActive({ [c.id]: c.favorAfter }, c.id)) A.text(x0 + 2, py + 31, ('BOON: ' + P.GODS[i].boon.desc).slice(0, pw - 3), c.ci, al);
+    else if (P.curseActive({ [c.id]: c.favorAfter }, c.id)) A.text(x0 + 2, py + 31, ('CURSE: ' + P.GODS[i].curse.desc).slice(0, pw - 3), 7, al);
   });
+  if (G.chaliceNote) A.textC(64, G.chaliceNote, 5, 0.9);
   if (G.judgeT > 1.4 && ((G.t * 1.5) | 0) % 2 === 0) A.textC(68, '- SPACE: DESCEND TO FLOOR ' + (G.depth + 1) + ' -', 5);
   // stat legend
   A.textC(74, 'every grade is a pure function over this floor\'s numbers -- no vibes', 1, 0.5);
@@ -856,8 +1244,8 @@ function drawDead(dt) {
   G.deadT += dt;
   plasma(G.t * 0.1, 0.15, [7, 1]);
   drawWorld(); // corpse particles keep raining
-  bigText(80, 18, 'YOU', 3, 7, Math.min(1, G.deadT * 2));
-  bigText(80, 36, 'DIED', 3, 7, Math.min(1, Math.max(0, G.deadT - 0.3) * 2));
+  bigText(80, 18, 'YOU', 3, 7, Math.min(1, G.deadT * 2), 0.7);
+  bigText(80, 36, 'DIED', 3, 7, Math.min(1, Math.max(0, G.deadT - 0.3) * 2), 0.7);
   if (G.deadT > 1) {
     A.textC(56, G.epitaph, 1);
     A.textC(59, 'FLOOR ' + G.run.floors + '   KILLS ' + G.run.kills + '   SCORE ' + G.run.score + '   BEST ' + G.best, 0);
@@ -881,11 +1269,30 @@ function frame(now) {
   G.t += dt;
   G.shake = Math.max(0, G.shake - dt * 12);
   G.flash = Math.max(0, G.flash - dt * 2.5);
+  G.surge = Math.max(0, (G.surge || 0) - dt * 2);
+  // ambient reality failure: the world glitches on its own schedule
+  G.glitchT = (G.glitchT === undefined ? 6 : G.glitchT) - dt;
+  if (G.glitchT <= 0) {
+    A.startGlitch(0.3 + Math.random() * 0.45, 0.15 + Math.random() * 0.2);
+    G.glitchT = 8 + Math.random() * 12;
+  }
 
   A.beginFrame();
   if (G.state === 'title') drawTitle();
   else if (G.state === 'judgment') drawJudgment(dt);
   else if (G.state === 'dead') { drawDead(dt); drawHud(); }
+  else if (G.state === 'descend') {
+    // falling between floors: fake-3D character tunnel
+    G.descT += dt;
+    for (const s of G.streaks) {
+      s.d += (s.s + s.d * 3.5) * dt;
+      if (s.d > 100) s.d = 1 + Math.random() * 5;
+      px(80 + Math.cos(s.a) * s.d, 45 + Math.sin(s.a) * s.d * 0.62, s.ci, Math.min(1, s.d / 25));
+      px(80 + Math.cos(s.a) * s.d * 0.86, 45 + Math.sin(s.a) * s.d * 0.86 * 0.62, s.ci, Math.min(0.5, s.d / 40));
+    }
+    A.textC(44, 'F L O O R   ' + G.depth, 0, Math.min(1, G.descT * 2));
+    if (G.descT > 1.15) { genFloor(); G.state = 'play'; }
+  }
   else {
     if (G.hitstop > 0) G.hitstop -= dt;
     else updatePlay(dt);

@@ -34,6 +34,32 @@ Favor persists across runs in localStorage. An advertised effect is a real effec
 finite, monotonic, and that every boon/curse key is consumed by `game.js` — no no-op
 upgrades, ever again.
 
+## The rooms are wrong
+
+Each floor, ~half the rooms roll a heuristic, announced on entry and worn in the HUD:
+LOW GRAVITY (inertial drift, floating knockback), SIDEWAYS GRAVITY (the room pulls — watch
+the motes), PITCH DARK (tiny torch + a flashlight cone; the unseen render as faint static,
+but telegraphs stay honest), BAD WIRING (the lights brown out), HASTE (everything 1.4x),
+MOLASSES (everything 0.7x except dash — dash is king), THE SWARM (2x enemies, half HP),
+RUBBER (knockback tripled, walls bounce). All mechanical, all covered by the no-op guard.
+
+## The objects want things from you
+
+One hands slot (Atari Adventure law). C uses what you hold: GUN (6 shots — PLUMA counts
+ranged kills at one-third honor), NINJA STAR (pierces, bounces twice, lies where it falls),
+HOTDOG (full heal, 4s digesting slow — VELOX bills it as idle; MORS's curse makes it taste
+of nothing), LANTERN (double torch), KEY -> CHEST (cross-room delivery, AURUM's jackpot),
+CHALICE (deliver it to the stairs untouched: +300 and the whole pantheon warms). And THE
+BAT — Adventure's own — swoops in, steals what you hold, and flies it to another room.
+Cut it down or chase it.
+
+## The world glitches
+
+Every frame can fail like bad tape: chroma-split broken-3D ghosts (orange/blue, never
+red/green), VHS row shear, depth-pop zoom lunges, ramp scramble. Ambient on a timer,
+harder when you're hit, when rooms clear, and when each god lands on the judgment board.
+Floors connect through a falling character tunnel.
+
 ## Lineage
 
 - **Atari Adventure (1979)** — flip-screen rooms, a literal square for a hero, and dragons

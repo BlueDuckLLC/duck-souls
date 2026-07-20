@@ -35,8 +35,32 @@ class Asciifier {
 
     this.texts = [];
     this.font = `bold ${cell + 2}px Menlo, Consolas, "Courier New", monospace`;
+    this.frame = 0;
+    // glitch post-FX state (chroma-split / row shear / depth pop / ramp scramble)
+    this.glitch = { mode: null, t: 0, dur: 0, strength: 0, rowOff: null };
+    this.tmp = document.createElement('canvas');
+    this.tmp.width = this.canvas.width; this.tmp.height = this.canvas.height;
+    this.tctx = this.tmp.getContext('2d');
     this._buildLuts();
     this._buildAtlas();
+  }
+
+  // The world is briefly wrong. Reads as broken stereoscopic 3D / VHS damage.
+  startGlitch(strength = 0.5, dur = 0.28, mode = null) {
+    const modes = ['chroma', 'shear', 'pop', 'scramble', 'chroma'];
+    const g = this.glitch;
+    g.mode = mode || modes[(Math.random() * modes.length) | 0];
+    g.t = 0; g.dur = dur; g.strength = strength;
+    if (g.mode === 'shear') {
+      g.rowOff = new Int8Array(this.rows);
+      const bands = 2 + ((Math.random() * 4) | 0);
+      for (let b = 0; b < bands; b++) {
+        const y0 = (Math.random() * this.rows) | 0;
+        const h = 2 + ((Math.random() * 5) | 0);
+        const dx = (Math.random() < 0.5 ? -1 : 1) * (1 + ((Math.random() * 3 * strength) | 0));
+        for (let y = y0; y < Math.min(this.rows, y0 + h); y++) g.rowOff[y] = dx;
+      }
+    }
   }
 
   _buildLuts() {
@@ -110,20 +134,57 @@ class Asciifier {
 
   render() {
     const { cols, rows, cell, dctx, atlas, glut, clut } = this;
+    this.frame++;
+    const gl = this.glitch;
+    gl.t += 1 / 60;
+    const ga = gl.mode && gl.t < gl.dur;
+    const shear = ga && gl.mode === 'shear' ? gl.rowOff : null;
+    const scramble = ga && gl.mode === 'scramble';
     const d = this.sctx.getImageData(0, 0, cols, rows).data;
     dctx.fillStyle = '#000';
     dctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     let i = 0;
     for (let y = 0; y < rows; y++) {
       const dy = y * cell;
+      const rx = shear ? shear[y] * cell : 0;
       for (let x = 0; x < cols; x++) {
         const r = d[i], g = d[i + 1], b = d[i + 2]; i += 4;
         const l = (r * 54 + g * 183 + b * 19) >> 8;
         if (l < 10) continue;
         const ci = clut[((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)];
-        const gi = glut[Math.min(255, (l * this.pinv[ci]) | 0)];
-        dctx.drawImage(atlas, gi * cell, ci * cell, cell, cell, x * cell, dy, cell, cell);
+        let gi = glut[Math.min(255, (l * this.pinv[ci]) | 0)];
+        if (scramble && ((x * 31 + y * 17 + this.frame * 7) % 5) === 0) {
+          gi = Math.max(1, Math.min(RAMP.length - 1, gi + (((x + y + this.frame) & 1) ? 2 : -2)));
+        }
+        dctx.drawImage(atlas, gi * cell, ci * cell, cell, cell, x * cell + rx, dy, cell, cell);
       }
+    }
+    // post passes: broken-3D ghosts (whole-canvas GPU composites, cheap)
+    if (ga && gl.mode === 'chroma') {
+      const off = Math.round(1 + gl.strength * 2) * cell;
+      const fade = 1 - gl.t / gl.dur;
+      for (const [color, sign] of [['#E69F00', 1], ['#0072B2', -1]]) {
+        this.tctx.globalCompositeOperation = 'source-over';
+        this.tctx.clearRect(0, 0, this.tmp.width, this.tmp.height);
+        this.tctx.drawImage(this.canvas, 0, 0);
+        this.tctx.globalCompositeOperation = 'source-atop';
+        this.tctx.fillStyle = color; this.tctx.globalAlpha = 0.9;
+        this.tctx.fillRect(0, 0, this.tmp.width, this.tmp.height);
+        this.tctx.globalAlpha = 1;
+        dctx.globalCompositeOperation = 'lighter';
+        dctx.globalAlpha = 0.3 * fade;
+        dctx.drawImage(this.tmp, sign * off, (this.frame & 2) ? sign * cell : 0);
+      }
+      dctx.globalCompositeOperation = 'source-over'; dctx.globalAlpha = 1;
+    } else if (ga && gl.mode === 'pop') {
+      const W = this.canvas.width, H = this.canvas.height;
+      const s = 1 + 0.07 * gl.strength * Math.sin((gl.t / gl.dur) * Math.PI);
+      this.tctx.globalCompositeOperation = 'source-over';
+      this.tctx.clearRect(0, 0, W, H);
+      this.tctx.drawImage(this.canvas, 0, 0);
+      dctx.globalAlpha = 0.55;
+      dctx.drawImage(this.tmp, W / 2 - W * s / 2, H / 2 - H * s / 2, W * s, H * s);
+      dctx.globalAlpha = 1;
     }
     // overlay text
     dctx.font = this.font;
