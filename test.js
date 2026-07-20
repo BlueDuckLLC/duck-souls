@@ -118,7 +118,9 @@ for (const stats of [base, perfect, awful]) {
     t(`MUT ${key} consumed by game.js (${uses} refs)`, uses >= 2);
   }
   // challenge objects all reachable in code
-  for (const kind of ['gun', 'star', 'hotdog', 'lantern', 'key', 'chalice', 'bomb',
+  // v9 prune: hotdog/lantern/bomb/gun/star/chalice retired from floors (armory-only
+  // weapons + key->chest ritual); only LIVE kinds must be wired
+  for (const kind of ['key', 'heart', 'sword',
     'hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow']) {
     const uses = src.split(`'${kind}'`).length - 1;
     t(`item ${kind} wired into game.js (${uses} refs)`, uses >= 2);
@@ -175,6 +177,21 @@ for (const stats of [base, perfect, awful]) {
 {
   t('epitaph exists', P.epitaph({ floors: 3, kills: 9, dmgTaken: 2, score: 320 }, 500).length > 5);
   t('epitaph first floor', P.epitaph({ floors: 1, kills: 0, dmgTaken: 1, score: 100 }, 0).includes('first floor'));
+}
+
+// v9: fireworks/jelly/ritual guards
+{
+  const src = fs.readFileSync(path.join(__dirname, 'game.js'), 'utf8');
+  const fwDefs = (src.match(/^  \w+: \(x, y, c\) =>/gm) || []).length;
+  t(`30 firework choreographies defined (${fwDefs})`, fwDefs >= 29);
+  const fwCalls = (src.match(/fw\('/g) || []).length;
+  t(`fireworks hooked across the game (${fwCalls} call sites)`, fwCalls >= 25);
+  t('jelly transformation wired (dblclick + double-tap C)', /tryJelly/.test(src) && /dblclick/.test(src) && /BOUNCE-SLAM|bounce-slam|jellyT/.test(src));
+  t('key and chest share a room (v9 ritual)', /key and chest share ONE room/.test(src));
+  t('boss chest triggers the pool break', /startPoolBreak\(\)/.test(src) && /function drawPool/.test(src));
+  t('cutscenes: 12 conversations with dialogue', (src.match(/title: ['"]/g) || []).length >= 12 && (src.match(/say: '/g) || []).length >= 40);
+  const speakers = new Set((src.match(/say: '(\w+)'/g) || []).map(s => s.match(/'(\w+)'/)[1]));
+  t('every cutscene speaker is cast', [...speakers].every(s => ['velox','pluma','umbra','aurum','mors','sixth','soul','square','door'].includes(s)));
 }
 
 console.log(`${pass} passed, ${fail} failed`);

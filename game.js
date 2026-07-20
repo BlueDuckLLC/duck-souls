@@ -162,6 +162,19 @@ window.addEventListener('keydown', e => {
   onKey(e.key.toLowerCase());
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+// double-click (or double-tap C) -> the JELLY transformation
+window.addEventListener('dblclick', () => tryJelly());
+function tryJelly() {
+  const p = G.player;
+  if (!p || G.state !== 'play') return;
+  if (p.jellyT > 0 || (p.jellyCd || 0) > 0) return;
+  p.jellyT = 6; p.jellyCd = 16;
+  p.jvx = p.dir.x * 10; p.jvy = p.dir.y * 8;
+  fw('pinwheel', p.x, p.y, 8); fw('ringlet', p.x, p.y, 3);
+  msg('JELLY FORM: roll! X = BOUNCE-SLAM', 8, 2.2);
+  A.startGlitch(0.8, 0.3, 'chroma');
+  tone(200, 900, 0.3, 'sine', 0.1);
+}
 function inputVec() {
   let x = 0, y = 0;
   if (keys['arrowleft'] || keys['a']) x -= 1;
@@ -602,30 +615,16 @@ function genFloor() {
   };
   const fights = [...rooms.values()].filter(r => r.type === 'fight');
   if (fights.length >= 2) { // key+chest from floor 1: the reward loop starts immediately
+    // the ritual, simplified: key and chest share ONE room (clear it, take both)
     const ka = fights[(rng() * fights.length) | 0];
-    let cb = fights[(rng() * fights.length) | 0];
-    if (cb === ka) cb = fights[(fights.indexOf(ka) + 1) % fights.length];
     const [kx, ky] = spot(ka);
     ka.items.push({ x: kx, y: ky, kind: 'key', slot: true, ph: 0 });
-    const [cx, cy] = spot(cb);
-    cb.chest = { x: cx, y: cy, opened: false };
+    const [cx, cy] = spot(ka);
+    ka.chest = { x: Math.abs(cx - kx) < 8 ? cx + 10 : cx, y: cy, opened: false };
   }
   const toolRoom = [...rooms.values()][(rng() * rooms.size) | 0];
   const [tx, ty] = spot(toolRoom);
-  // TWO tools per floor: with one hands slot, the second one is a real decision
-  const toolBag = shuffle(['gun', 'star', 'hotdog', 'lantern', 'bomb'], rng);
-  const allRooms = [...rooms.values()];
-  for (let i = 0; i < 2; i++) {
-    const rm = i === 0 ? toolRoom : allRooms[(rng() * allRooms.length) | 0];
-    const [sx2, sy2] = spot(rm);
-    const kind = toolBag[i];
-    rm.items.push({ x: sx2, y: sy2, kind, slot: true, ph: 0, ammo: kind === 'bomb' ? 3 : 6 });
-  }
-  if (G.depth % 3 === 0) {
-    const cr = fights.length ? fights[(rng() * fights.length) | 0] : start;
-    const [gx, gy] = spot(cr);
-    cr.items.push({ x: gx, y: gy, kind: 'chalice', slot: true, ph: 0 });
-  }
+  // (floor tool clutter pruned v9: weapons live in the ARMORY; the floor's story is key->chest)
   // a heart piece hides on every floor (4 quarters -> +1 max HP, capped at +2/run)
   if ((G.run.pieces || 0) < 8) {
     const prs = [...rooms.values()].filter(r => r.type !== 'start');
@@ -823,7 +822,7 @@ function enterRoom(room, fromDir) {
   // THE TOLL: an old duck and his prices instead of a fight
   if (room.mut === 'TOLL' && !room.spawned) {
     room.spawned = true; room.cleared = true;
-    const wares = [['hotdog', 80], ['heart', 60], ['star', 90], ['lantern', 70], ['gun', 120], ['sword', 150], ['bomb', 100]];
+    const wares = [['heart', 60], ['sword', 150], ['heart', 70]];
     room.goods = [];
     for (let i = 0; i < 2; i++) {
       const [k, base] = wares.splice((rng() * wares.length) | 0, 1)[0];
@@ -886,7 +885,7 @@ function enterRoom(room, fromDir) {
   if (room.mut && !room.mutSeen) {
     room.mutSeen = true;
     msg('THE ROOM IS WRONG: ' + MUT[room.mut].name, MUT[room.mut].ci, 2.6);
-    msg(MUT[room.mut].desc, 1, 2.6);
+    msg(MUT[room.mut].desc, 1, 2.6); fw('spiral', 80, 20, MUT[room.mut].ci);
     A.startGlitch(0.8, 0.35);
     tone(80, 40, 0.5, 'sawtooth', 0.1);
   }
@@ -1008,6 +1007,64 @@ function wrapWoods(o) {
 function tryMove(e, nx, ny, hr) {
   if (!solidAt(nx - hr, e.y - hr) && !solidAt(nx + hr, e.y - hr) && !solidAt(nx - hr, e.y + hr) && !solidAt(nx + hr, e.y + hr)) e.x = nx;
   if (!solidAt(e.x - hr, ny - hr) && !solidAt(e.x + hr, ny - hr) && !solidAt(e.x - hr, ny + hr) && !solidAt(e.x + hr, ny + hr)) e.y = ny;
+}
+
+// ---------- FIREWORKS: 30 named choreographies, hooked to game events ----------
+// emit(cfg): n particles; ang0/spread shape the fan; g=gravity, tr=trail, sec=secondary
+// burst name spawned when a particle dies (crossette). Motion picks brightness downstream.
+function emit(x, y, ci, cfg) {
+  const n = cfg.n || 14;
+  for (let i = 0; i < n; i++) {
+    const a = (cfg.ang0 || 0) + (cfg.ring ? i / n * Math.PI * 2 : (Math.random() - 0.5) * (cfg.spread || Math.PI * 2));
+    const v = (cfg.spd || 18) * (cfg.even ? 1 : 0.4 + Math.random() * 0.8);
+    G.parts.push({
+      x, y, vx: Math.cos(a) * v * (cfg.sx || 1), vy: Math.sin(a) * v * (cfg.sy || 0.8) - (cfg.up || 0),
+      ci: Array.isArray(ci) ? ci[i % ci.length] : ci, life: (cfg.life || 0.8) * (0.7 + Math.random() * 0.6), t: 0,
+      g: cfg.g || 0, tr: cfg.tr || 0, sec: cfg.sec || null, wob: cfg.wob || 0, ph: Math.random() * 6,
+    });
+  }
+}
+const FIREWORKS = {
+  ring: (x, y, c) => emit(x, y, c, { ring: true, even: true, n: 18, spd: 20 }),
+  ring2: (x, y, c) => { emit(x, y, c, { ring: true, even: true, n: 16, spd: 22 }); emit(x, y, 0, { ring: true, even: true, n: 12, spd: 12 }); },
+  willow: (x, y, c) => emit(x, y, c, { ring: true, n: 20, spd: 14, g: 22, tr: 1, life: 1.6 }),
+  chrys: (x, y, c) => emit(x, y, c, { ring: true, even: true, n: 26, spd: 24, tr: 1, life: 1.1 }),
+  peony: (x, y, c) => emit(x, y, [c, 0], { ring: true, n: 22, spd: 18, life: 1.2 }),
+  crossette: (x, y, c) => emit(x, y, c, { ring: true, even: true, n: 6, spd: 16, life: 0.5, sec: 'ringlet' }),
+  ringlet: (x, y, c) => emit(x, y, c, { ring: true, even: true, n: 6, spd: 10, life: 0.4 }),
+  palm: (x, y, c) => emit(x, y, c, { spread: 1.2, ang0: -Math.PI / 2, n: 9, spd: 26, g: 26, tr: 1, life: 1.4 }),
+  fountain: (x, y, c) => emit(x, y, c, { spread: 0.7, ang0: -Math.PI / 2, n: 24, spd: 22, g: 34, life: 1.3 }),
+  fan: (x, y, c) => emit(x, y, c, { spread: 1.6, ang0: -Math.PI / 2, n: 12, spd: 24, tr: 1 }),
+  spiral: (x, y, c) => { for (let i = 0; i < 20; i++) { const a = i * 0.55; G.parts.push({ x, y, vx: Math.cos(a) * (6 + i), vy: Math.sin(a) * (5 + i) * 0.8, ci: c, life: 0.9, t: 0, tr: 1 }); } },
+  helix: (x, y, c) => { for (let i = 0; i < 24; i++) { const s = i % 2 ? 1 : -1; G.parts.push({ x, y, vx: (i / 3) * s, vy: -14, ci: i % 2 ? c : 6, life: 1.1, t: 0, g: 10, wob: 8, ph: i }); } },
+  halo: (x, y, c) => emit(x, y - 4, c, { ring: true, even: true, n: 20, spd: 6, life: 1.4 }),
+  implode: (x, y, c) => { for (let i = 0; i < 18; i++) { const a = i / 18 * Math.PI * 2; G.parts.push({ x: x + Math.cos(a) * 14, y: y + Math.sin(a) * 10, vx: -Math.cos(a) * 20, vy: -Math.sin(a) * 16, ci: c, life: 0.6, t: 0 }); } },
+  nova: (x, y, c) => { emit(x, y, [c, 0, 5], { ring: true, even: true, n: 30, spd: 30, tr: 1, life: 1.4 }); emit(x, y, 0, { ring: true, n: 14, spd: 8, life: 0.8 }); A.startGlitch(0.8, 0.3, 'pop'); },
+  glyphs: (x, y, c) => { for (let i = 0; i < 8; i++) G.parts.push({ x, y, vx: (Math.random() - 0.5) * 24, vy: -10 - Math.random() * 12, ci: c, life: 1.2, t: 0, g: 20, glyph: '@#%&*+='[i % 7] }); },
+  pinwheel: (x, y, c) => { for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; G.parts.push({ x, y, vx: Math.cos(a) * 16, vy: Math.sin(a) * 13, ci: i % 4 ? c : 5, life: 1, t: 0, wob: 14, ph: a }); } },
+  waterfall: (x, y, c) => { for (let i = 0; i < 20; i++) G.parts.push({ x: x - 10 + i, y, vx: 0, vy: 4, ci: c, life: 1.6, t: 0, g: 18, tr: 1 }); },
+  strobe: (x, y, c) => emit(x, y, [c, 0, c, 0], { ring: true, n: 16, spd: 3, life: 1.2 }),
+  meteor: (x, y, c) => emit(x, y, c, { spread: 0.5, ang0: Math.PI * 0.75, n: 6, spd: 34, tr: 1, life: 0.9 }),
+  geyser: (x, y, c) => emit(x, y, c, { spread: 0.3, ang0: -Math.PI / 2, n: 16, spd: 34, g: 40, life: 1.4, tr: 1 }),
+  cascade: (x, y, c) => emit(x, y, c, { ring: true, n: 14, spd: 12, g: 30, sec: 'ringlet', life: 0.7 }),
+  ribbon: (x, y, c) => { for (let i = 0; i < 18; i++) G.parts.push({ x, y, vx: 14 * Math.cos(i * 0.35), vy: -6, ci: c, life: 1.2, t: 0, wob: 10, ph: i * 0.5, tr: 1 }); },
+  crackle: (x, y, c) => emit(x, y, [0, c], { ring: true, n: 26, spd: 26, life: 0.3, sec: 'ringlet' }),
+  heartfw: (x, y, c) => { for (let i = 0; i < 20; i++) { const t = i / 20 * Math.PI * 2; G.parts.push({ x, y, vx: 16 * Math.pow(Math.sin(t), 3), vy: -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t)) * 0.9, ci: 7, life: 1.1, t: 0 }); } },
+  diamond: (x, y, c) => { for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; const r = 1 / (Math.abs(Math.cos(a)) + Math.abs(Math.sin(a))); G.parts.push({ x, y, vx: Math.cos(a) * 22 * r, vy: Math.sin(a) * 18 * r, ci: c, life: 0.9, t: 0 }); } },
+  squarefw: (x, y, c) => { for (let i = 0; i < 20; i++) { const a = i / 20 * Math.PI * 2; const r = 1 / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))); G.parts.push({ x, y, vx: Math.cos(a) * 20 * r, vy: Math.sin(a) * 16 * r, ci: c, life: 0.9, t: 0 }); } },
+  orbitfw: (x, y, c) => { for (let i = 0; i < 12; i++) G.parts.push({ x: x + Math.cos(i) * 6, y: y + Math.sin(i) * 4, vx: -Math.sin(i) * 14, vy: Math.cos(i) * 11, ci: c, life: 1.2, t: 0, wob: 6, ph: i }); },
+  zigzag: (x, y, c) => { for (let i = 0; i < 12; i++) G.parts.push({ x, y, vx: (i % 2 ? 18 : -18), vy: -16 + i * 2.4, ci: c, life: 0.9, t: 0, wob: 20, ph: i }); },
+  rain: (x, y, c) => { for (let i = 0; i < 24; i++) G.parts.push({ x: x - 16 + Math.random() * 32, y: y - 12, vx: 0, vy: 10 + Math.random() * 10, ci: c, life: 1.2, t: 0, tr: 1 }); },
+  comet: (x, y, c) => emit(x, y, c, { spread: 0.2, ang0: -Math.PI / 4, n: 3, spd: 40, tr: 1, life: 1.2, sec: 'peony' }),
+  bloomfw: (x, y, c) => { emit(x, y, 4, { ring: true, even: true, n: 10, spd: 8, life: 0.8 }); emit(x, y, 8, { ring: true, even: true, n: 8, spd: 14, life: 1 }); },
+};
+function fw(name, x, y, ci) { const f = FIREWORKS[name]; if (f) f(x, y, ci === undefined ? 5 : ci); }
+// kill fireworks: each enemy CLASS gets its own send-off
+function killFw(e) {
+  const cls = e.type === 'duck' ? 'peony' : e.type === 'bat' ? 'zigzag' : e.type === 'turret' ? 'crossette'
+    : ['octorok', 'moblin', 'tektite', 'gibdo', 'rope', 'leever', 'darknut', 'peahat'].includes(e.type) ? 'willow'
+      : e.type === 'slinky' ? 'helix' : 'ring';
+  fw(cls, e.x, e.y, e.ci);
 }
 
 // ---------- particles ----------
@@ -1144,7 +1201,7 @@ function slashCore(reach, dmg, dot0, kind) {
     if (!Combat.weaponHits(kind || 'sword', p.x, p.y, e.x, e.y, p.dir.x, p.dir.y, reach, isSolidCell)) continue;
     if (ironBlocked(e, p.x, p.y)) { clink(e); hitAny = true; continue; }
     e.hp -= dmg; e.flash = 0.15; hitAny = true;
-    if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); }
+    if (e.state === 'windup') { G.floorStats.interrupts++; e.state = 'recover'; e.st = 0.5; msg('INTERRUPTED', 3, 0.7); fw('fan', e.x, e.y, 3); }
     e.kx = dx / (d || 1) * 40 * playerStats().kb; e.ky = dy / (d || 1) * 40 * playerStats().kb;
     burst(e.x, e.y, e.ci, 8, 18, 0.4);
     if (e.hp <= 0) killEnemy(e, 'melee');
@@ -1173,7 +1230,7 @@ function hammerSmash(charge) {
   G.smashFx = { x: p.x + p.dir.x * reach * 0.6, y: p.y + p.dir.y * reach * 0.6, r: reach, t: 0.25 };
   G.shake = Math.max(G.shake, 3 + charge * 3); G.hitstop = Math.max(G.hitstop, 0.08);
   A.startGlitch(0.5 + charge * 0.4, 0.25, 'pop');
-  tone(90, 40, 0.35, 'sawtooth', 0.16); tone(160, 30, 0.3, 'square', 0.1, 0.02);
+  tone(90, 40, 0.35, 'sawtooth', 0.16); if (charge >= 0.99) fw('geyser', p.x + p.dir.x * 6, p.y, 7); tone(160, 30, 0.3, 'square', 0.1, 0.02);
   if (hit) SFX.kill();
 }
 
@@ -1208,7 +1265,7 @@ function hurtPlayer(from) {
 function die() {
   foldFloor();
   G.run.score = G.run.floors * 100 + G.run.kills * 10 + (G.run.bonus || 0);
-  if (G.run.score > G.best) { G.best = G.run.score; localStorage.setItem(LS_BEST, G.best); }
+  if (G.run.score > G.best) { G.best = G.run.score; localStorage.setItem(LS_BEST, G.best); fw('chrys', 80, 30, 5); }
   G.epitaph = P.epitaph({ ...G.run, score: G.run.score }, G.best);
   // the ledger remembers; memories surface when they are earned
   const led = G.ledger;
@@ -1225,7 +1282,7 @@ function die() {
   led.lastRuns.splice(5);
   const after = P.unlockedLore(led);
   const fresh = after.filter(f => !before.has(f.id));
-  G.whisperNew = fresh.length > 0;
+  G.whisperNew = fresh.length > 0; if (fresh.length) fw('halo', 80, 60, 8);
   G.whisper = fresh.length ? fresh[0].text
     : after.length ? after[(Math.random() * after.length) | 0].text : '';
   saveLedger();
@@ -1331,6 +1388,7 @@ function killEnemy(e, how = 'melee') {
   if (spr) G.parts.push({ dissolve: spr, x: e.x - spr[0].length / 2, y: e.y - spr.length / 2, ci: e.ci, flip: e.vx > 0.5, t: 0, life: 0.55 });
   burst(e.x, e.y, e.ci, 16, 22, 0.7);
   burst(e.x, e.y, 0, 6, 14, 0.5);
+  killFw(e); // per-class firework send-off (5 classes)
   G.shake = Math.max(G.shake, 2.5);
   G.hitstop = Math.max(G.hitstop, 0.11); // reward must out-freeze punishment (hurt = 0.09)
   SFX.kill();
@@ -1387,6 +1445,7 @@ function explode(bx, by) {
 
 function roomCleared() {
   G.cur.cleared = true;
+  fw('ring2', G.player.x, G.player.y, 3); // room-clear ring
   // the spore-bow grows back a seed each cleared room, so it stays a weapon not a consumable
   const p = G.player;
   if (heldKind() === 'sporebow') p.held.ammo = Math.min(8, (p.held.ammo || 0) + 1);
@@ -1436,6 +1495,64 @@ const BOSSES = [
 
 function bossForDepth(depth) { return BOSSES[(Math.floor(depth / 3) - 1 + BOSSES.length * 9) % BOSSES.length]; }
 function bossRoomKey() { for (const [k, r] of G.rooms) if (r.type === 'stairs') return k; return '0,0'; }
+
+// THE POOL BREAK: the current frame's lit cells become billiard balls — scattered,
+// ricocheting, colliding — then the table clears and the boss is waiting. ~5 seconds.
+function startPoolBreak() {
+  G.tranceBoss = bossForDepth(G.depth);
+  const img = A.sctx.getImageData(0, 0, COLS, ROWS).data;
+  const balls = [];
+  for (let y = 0; y < ROWS && balls.length < 240; y += 2) {
+    for (let x = 0; x < COLS && balls.length < 240; x += 2) {
+      const i = (y * COLS + x) * 4;
+      const l = (img[i] * 54 + img[i + 1] * 183 + img[i + 2] * 19) >> 8;
+      if (l > 45) balls.push({ x, y, vx: 0, vy: 0, ci: [0, 1, 2, 3, 4, 5, 6, 7, 8][(x + y) % 9] });
+    }
+  }
+  // the cue ball: everything near the chest gets blasted outward (the break)
+  for (const b of balls) {
+    const dx = b.x - G.player.x, dy = b.y - G.player.y, d = Math.hypot(dx, dy) || 1;
+    const pow = 55 / (1 + d * 0.06);
+    b.vx = dx / d * pow + (Math.random() - 0.5) * 8;
+    b.vy = dy / d * pow * 0.8 + (Math.random() - 0.5) * 6;
+  }
+  G.poolBalls = balls; G.poolT = 0;
+  G.state = 'pool';
+  A.startGlitch(1, 0.5, 'shear');
+  tone(1200, 100, 0.5, 'square', 0.14); tone(300, 60, 0.8, 'sawtooth', 0.1, 0.1);
+}
+
+function drawPool(dt) {
+  G.poolT += dt;
+  const T = G.poolT, balls = G.poolBalls;
+  // phase 1 (0-3.5s): scatter + ricochet + ball-ball shoves; phase 2 (3.5-5s): converge
+  for (const b of balls) {
+    if (T < 3.5) {
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      b.vx *= 0.995; b.vy *= 0.995;
+      if (b.x < 1 || b.x > COLS - 2) { b.vx *= -0.92; b.x = Math.max(1, Math.min(COLS - 2, b.x)); }
+      if (b.y < 1 || b.y > ROWS - 2) { b.vy *= -0.92; b.y = Math.max(1, Math.min(ROWS - 2, b.y)); }
+    } else {
+      const k = (T - 3.5) / 1.5;
+      b.x += ((80 + Math.cos(b.ci) * 20) - b.x) * k * dt * 6;
+      b.y += ((42 + Math.sin(b.ci) * 12) - b.y) * k * dt * 6;
+    }
+    const spd = Math.hypot(b.vx, b.vy);
+    px(b.x, b.y, b.ci, 0.4 + Math.min(0.6, spd / 40)); // speed burns brighter
+    if (spd > 20) px(b.x - b.vx * 0.02, b.y - b.vy * 0.02, b.ci, 0.25);
+  }
+  // pairwise elastic shoves (coarse: every 4th pair per frame)
+  if (T < 3.5) {
+    const off = (G.t * 60 | 0) % 4;
+    for (let i = off; i < balls.length; i += 4) for (let j = i + 1; j < Math.min(balls.length, i + 8); j++) {
+      const a = balls[i], c = balls[j];
+      const dx = c.x - a.x, dy = c.y - a.y, d = Math.hypot(dx, dy);
+      if (d > 0 && d < 2) { const push = (2 - d) / d; a.vx -= dx * push * 4; a.vy -= dy * push * 4; c.vx += dx * push * 4; c.vy += dy * push * 4; if (Math.abs(a.vx) + Math.abs(c.vx) > 30 && Math.random() < 0.05) tone(700 + Math.random() * 400, 500, 0.03, 'square', 0.03); }
+    }
+  }
+  if (G.poolT > 2 && ((G.t * 2) | 0) % 2 === 0) A.textC(70, G.tranceBoss.name, G.tranceBoss.ci, Math.min(1, (T - 2)));
+  if (T > 5) enterBossArena();
+}
 
 function enterBossArena() {
   const stairsRoom = G.rooms.get(bossRoomKey());
@@ -1499,11 +1616,11 @@ function updateBoss(dt) {
       b.hitFlash = 0.15;
       p.atkT = 0; // one swing breaks one orb — no multi-orb chains from a single slash
       burst(o.x, o.y, 6, 16, 20, 0.5);
-      tone(900, 200, 0.12, 'square', 0.1);
+      tone(900, 200, 0.12, 'square', 0.1); fw('ringlet', o.x, o.y, 6);
       G.shake = Math.max(G.shake, 2);
       if (b.st.staggered) {
         b.staggerT = 1.2;
-        msg('THE FORM BREAKS', 5, 1.5);
+        msg('THE FORM BREAKS', 5, 1.5); fw('implode', b.x, b.y, def.ci);
         A.startGlitch(1, 0.5, 'shear');
         burst(b.x, b.y, def.ci, 40, 30, 1);
         G.shake = 6; G.hitstop = 0.12;
@@ -1552,7 +1669,7 @@ function bossDefeated() {
   G.ledger['felled_' + def.id] = 1;
   G.ledger.bossesFelled = (G.ledger.bossesFelled || 0) + 1;
   saveLedger();
-  msg(def.name + ' FALLS. +500', 5, 3);
+  msg(def.name + ' FALLS. +500', 5, 3); fw('nova', 80, 40, def.ci);
   G.boss = null;
   G.cur.cleared = true; G.cur.bossDone = true;
   roomCleared();
@@ -1692,7 +1809,7 @@ function updatePlay(dt) {
     G.parts.push({ x: p.x, y: p.y, vx: 0, vy: 0, ci: 3, life: 0.25, t: 0, ghost: true });
     for (const e of G.enemies) if (!e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 4) p.dashHadDanger = true;
     for (const b of G.bolts) if (Math.hypot(b.x - p.x, b.y - p.y) < 3) p.dashHadDanger = true;
-    if (p.dashT <= 0 && p.dashHadDanger) { G.floorStats.dashThroughs++; msg('SLIPPED', 8, 0.6); }
+    if (p.dashT <= 0 && p.dashHadDanger) { G.floorStats.dashThroughs++; msg('SLIPPED', 8, 0.6); fw('ribbon', p.x, p.y, 8); }
   } else {
     vx = iv.x * st.spd; vy = iv.y * st.spd;
   }
@@ -1718,11 +1835,42 @@ function updatePlay(dt) {
   p.invulnT -= dt; p.atkCd -= dt; p.atkT -= dt;
   if (p.digestT > 0) p.digestT -= dt;
 
+  // JELLY FORM: rolling physics; weapons disabled; X = bounce-slam
+  if (p.jellyCd > 0) p.jellyCd -= dt;
+  if (p.jellyT > 0) {
+    p.jellyT -= dt;
+    if (p.jellyT <= 0) { fw('ringlet', p.x, p.y, 8); msg('...solid again', 1, 1); }
+    // momentum rolling: input accelerates, walls bounce (physics as art)
+    const iv2 = inputVec();
+    p.jvx = (p.jvx || 0) + iv2.x * 60 * dt; p.jvy = (p.jvy || 0) + iv2.y * 50 * dt;
+    const jmax = playerStats().spd * 1.3;
+    const jm = Math.hypot(p.jvx, p.jvy); if (jm > jmax) { p.jvx *= jmax / jm; p.jvy *= jmax / jm; }
+    const pjx = p.x, pjy = p.y;
+    tryMove(p, p.x + p.jvx * dt, p.y + p.jvy * dt, 1.3);
+    if (p.x === pjx && Math.abs(p.jvx) > 3) { p.jvx *= -0.8; tone(300, 200, 0.05, 'sine', 0.05); }
+    if (p.y === pjy && Math.abs(p.jvy) > 3) { p.jvy *= -0.8; tone(300, 200, 0.05, 'sine', 0.05); }
+    p.kx = 0; p.ky = 0; // knockback-immune: jelly absorbs
+    if ((keys['x'] || keys[' ']) && p.atkCd <= 0) { // BOUNCE-SLAM
+      p.atkCd = 0.5; p.slamT = 0.25;
+      for (const e of G.enemies) {
+        if (e.telegraph > 0) continue;
+        const dxs = e.x - p.x, dys = e.y - p.y, ds = Math.hypot(dxs, dys) || 1;
+        if (ds < 9 && !losBlocked(p.x, p.y, e.x, e.y)) {
+          e.hp -= 2; e.flash = 0.15; e.kx = dxs / ds * 60; e.ky = dys / ds * 60;
+          if (e.hp <= 0) killEnemy(e, 'melee');
+        }
+      }
+      fw('ring', p.x, p.y, 8); G.shake = Math.max(G.shake, 3); G.hitstop = 0.06;
+      tone(150, 60, 0.2, 'sine', 0.14);
+    }
+    p.invulnT = Math.max(p.invulnT, 0); p.atkT = 0; // no sword arc while jelly
+    // skip normal movement/attack for this frame's remainder markers
+  }
   const heldK = heldKind();
   const wpn = ITEMS[heldK] && ITEMS[heldK].weapon;
   // X/SPACE is the ATTACK button. A held weapon OWNS it (its own hit + animation);
   // bare-handed (or holding a non-weapon) you get the base sword. No free sword underneath.
-  const atkPressed = keys['x'] || keys[' '];
+  const atkPressed = (keys['x'] || keys[' ']) && !(p.jellyT > 0);
   if (wpn) { if (heldK !== 'hammer') { if (atkPressed) weaponAttack(heldK); } }
   else if (atkPressed) slash();
 
@@ -1767,12 +1915,12 @@ function updatePlay(dt) {
     if (b.spore) {
       b.z += b.vz * dt; b.vz -= 26 * dt;
       b.x += b.vx * dt; b.y += b.vy * dt;
-      if (b.z <= 0 || solidAt(b.x, b.y)) { b.dead = true; G.patches.push({ x: b.x, y: b.y, r: 6, t: 2 }); tone(200, 120, 0.15, 'sawtooth', 0.06); burst(b.x, b.y, 4, 16, 12, 0.5); }
+      if (b.z <= 0 || solidAt(b.x, b.y)) { b.dead = true; G.patches.push({ x: b.x, y: b.y, r: 6, t: 2 }); fw('bloomfw', b.x, b.y, 4); tone(200, 120, 0.15, 'sawtooth', 0.06); burst(b.x, b.y, 4, 16, 12, 0.5); }
       continue;
     }
     b.t += dt;
     if (!b.back && b.t > 0.4) { b.back = true; }
-    if (b.back) { const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1; b.vx += dx / d * 120 * dt; b.vy += dy / d * 120 * dt; if (d < 3) { b.dead = true; p.thrown = false; } }
+    if (b.back) { const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1; b.vx += dx / d * 120 * dt; b.vy += dy / d * 120 * dt; if (d < 3) { b.dead = true; p.thrown = false; fw('orbitfw', p.x, p.y, 5); } }
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (solidAt(b.x, b.y)) { b.vx *= -0.6; b.vy *= -0.6; b.back = true; }
     for (const e of G.enemies) {
@@ -1992,7 +2140,7 @@ function updatePlay(dt) {
     if (wantsYou && Math.hypot(b.x - p.x, b.y - p.y) < 2.6) {
       b.carrying = p.held; p.held = null;
       G.floorStats.itemsStolen++;
-      msg('THE BAT TOOK YOUR ' + ITEMS[b.carrying.kind].label + '!', 7, 2.2);
+      msg('THE BAT TOOK YOUR ' + ITEMS[b.carrying.kind].label + '!', 7, 2.2); fw('zigzag', b.x, b.y, 7);
       A.startGlitch(0.7, 0.25, 'shear');
       tone(1200, 300, 0.3, 'sawtooth', 0.09);
       b.leaveT = Math.min(b.leaveT, 2.5);
@@ -2019,7 +2167,7 @@ function updatePlay(dt) {
         G.cur.poolGiven = G.cur.poolGiven || 0;
         if (p.hp < p.maxhp && G.cur.poolGiven < 2) { // the spring is not a battery
           p.hp++; G.cur.poolGiven++;
-          burst(p.x, p.y, 3, 8, 8, 0.4); msg('+1 HP', 3, 0.8); tone(700, 900, 0.1, 'triangle', 0.05);
+          burst(p.x, p.y, 3, 8, 8, 0.4); msg('+1 HP', 3, 0.8); tone(700, 900, 0.1, 'triangle', 0.05); fw('halo', p.x, p.y, 3);
         } else if (G.cur.poolGiven >= 2) msg('THE SPRING IS SPENT', 1, 1);
       }
     }
@@ -2076,11 +2224,11 @@ function updatePlay(dt) {
           p.held = { kind: gd.kind, ammo: gd.kind === 'gun' ? 6 : gd.kind === 'bomb' ? 3 : undefined };
         } else if (gd.kind === 'heart') p.hp = Math.min(p.maxhp, p.hp + 1);
         else if (gd.kind === 'sword') p.swords = Math.min(MAX_SWORDS, p.swords + 1);
-        msg('"THANK YOU." (-' + gd.price + ')  AURUM APPROVES', 5, 2);
+        msg('"THANK YOU." (-' + gd.price + ')  AURUM APPROVES', 5, 2); fw('glyphs', gd.x, gd.y, 5);
         SFX.pickup();
       } else if (!G.cur.alarmed) {
         G.cur.alarmed = true;
-        msg('THE OLD DUCK SCREAMS: THIEF', 7, 2.2);
+        msg('THE OLD DUCK SCREAMS: THIEF', 7, 2.2); fw('crackle', p.x, p.y, 7);
         A.startGlitch(0.9, 0.35, 'shear');
         SFX.hurt();
         G.cur.cleared = false;
@@ -2100,10 +2248,10 @@ function updatePlay(dt) {
     burst(p.x, p.y, 7, 16, 14, 0.6);
     if (G.run.pieces % 4 === 0) {
       p.maxhp++; p.hp = Math.min(p.maxhp, p.hp + 1);
-      msg('A HEART ASSEMBLES. +1 MAX HP', 7, 2.6);
+      msg('A HEART ASSEMBLES. +1 MAX HP', 7, 2.6); fw('heartfw', p.x, p.y - 4, 7);
       SFX.stairs();
     } else {
-      msg('HEART PIECE (' + (G.run.pieces % 4) + '/4)', 7, 1.6);
+      msg('HEART PIECE (' + (G.run.pieces % 4) + '/4)', 7, 1.6); fw('strobe', p.x, p.y, 7);
       SFX.pickup();
     }
   }
@@ -2124,13 +2272,12 @@ function updatePlay(dt) {
         G.floorStats.chestsOpened++;
         G.run.bonus = (G.run.bonus || 0) + 100;
         if (G.depth % 3 === 0 && !G.cur.bossDone && !G.rooms.get(bossRoomKey()).bossDone) {
-          // BOSS FLOOR: the chest holds the POTION — the invitation
-          G.pickups.push({ x: ch.x, y: ch.y + 4, kind: 'potion', ph: 0, potion: true });
-          msg('A POTION. IT IS LOOKING AT YOU.', 8, 2.6);
+          // BOSS FLOOR: the chest IS the invitation — the world breaks like a rack of pool balls
+          startPoolBreak();
         } else {
           const jack = ['heart', Math.random() < 0.5 ? 'sword' : 'boots', 'heart'];
           jack.forEach((k, i) => G.pickups.push({ x: ch.x - 4 + i * 4, y: ch.y + 4, kind: k, ph: 0 }));
-          msg('THE CHEST OPENS. AURUM HOWLS WITH JOY. +100', 5, 2.6);
+          msg('THE CHEST OPENS. AURUM HOWLS WITH JOY. +100', 5, 2.6); fw('fountain', ch.x, ch.y, 5);
         }
         burst(ch.x, ch.y, 5, 40, 26, 0.9);
         A.startGlitch(0.8, 0.35, 'pop');
@@ -2238,7 +2385,7 @@ function nextFloor() {
     a: Math.random() * Math.PI * 2, d: 1 + Math.random() * 12,
     s: 18 + Math.random() * 40, ci: [3, 6, 8, 0][(Math.random() * 4) | 0],
   }));
-  tone(120, 700, 1.0, 'sawtooth', 0.06);
+  tone(120, 700, 1.0, 'sawtooth', 0.06); fw('meteor', 80, 20, 3);
   A.startGlitch(0.7, 0.3, 'pop');
 }
 
@@ -2736,7 +2883,12 @@ function drawBestiary(dt) {
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
-  if (k === 'c') { useItem(); return; }
+  if (k === 'c') {
+    const now2 = performance.now();
+    if (G.lastC && now2 - G.lastC < 280) { G.lastC = 0; tryJelly(); return; }
+    G.lastC = now2;
+    useItem(); return;
+  }
   const mod = ['shift', 'meta', 'control', 'alt'].includes(k);
   if (G.state === 'cinema') {
     if (mod) return;
@@ -3160,6 +3312,16 @@ function drawWorld() {
   // player (breathing bob at rest, squash-stretch stepping when moving)
   const blink = p.invulnT > 0 && ((G.t * 12) | 0) % 2 === 0;
   if (!blink && G.state === 'play') {
+    if (p.jellyT > 0) { // the jelly bean: wobbling, rolling, luminous
+      const roll = G.t * 8;
+      const sq = 1 + Math.sin(G.t * 10) * 0.25; // squash and stretch
+      for (let a = 0; a < Math.PI * 2; a += 0.5) {
+        px(p.x + Math.cos(a + roll) * 2.2 * sq, p.y + Math.sin(a + roll) * 1.6 / sq, 8, 0.9);
+      }
+      rect(p.x - 1, p.y - 1, 2.5, 2, 8, 1); px(p.x, p.y - 1, 0, 0.8);
+      if (p.slamT > 0) { p.slamT -= 1 / 60; for (let a = 0; a < Math.PI * 2; a += 0.3) px(p.x + Math.cos(a) * (9 * (1 - p.slamT * 4)), p.y + Math.sin(a) * (7 * (1 - p.slamT * 4)), 8, p.slamT * 3); }
+      A.text(p.x - 2, p.y - 5, (p.jellyT).toFixed(0) + 's', 8, 0.6);
+    } else {
     const ci = p.dashT > 0 ? 3 : 0;
     const moving = Math.hypot(p.ivx || 0, p.ivy || 0) > 2;
     const bobY = moving ? 0 : Math.sin(G.t * 3) * 0.45;
@@ -3175,6 +3337,7 @@ function drawWorld() {
       for (let i = 0; i < c * 10; i++) px(p.x + Math.random() * 6 - 3, p.y + Math.random() * 6 - 3, 7, Math.random() * c);
       A.text(p.x - 2, p.y - 6, c >= 1 ? 'FULL' : '=' .repeat(Math.round(c * 4)), c >= 1 ? 5 : 7, 1);
     }
+    } // end non-jelly player draw
   }
   // ---- health as blue orbs orbiting in fake-3D ----
   // Each orb rides a tilted ring; sin(depth) scales its size and brightness so it reads as
@@ -3228,9 +3391,16 @@ function drawWorld() {
       }
       continue;
     }
+    if (pt.g) pt.vy += pt.g / 60;                       // gravity (willow droop, fountains)
+    if (pt.wob) pt.vx += Math.sin(pt.ph += 0.25) * pt.wob / 60; // wobble (helix, ribbon)
     pt.x += pt.vx / 60; pt.y += pt.vy / 60;
-    pt.vx *= 0.94; pt.vy *= 0.94;
-    px(pt.x, pt.y, pt.ci, 1 - pt.t / pt.life);
+    pt.vx *= 0.965; pt.vy *= 0.965;
+    const al = 1 - pt.t / pt.life;
+    const spd2 = Math.hypot(pt.vx, pt.vy);
+    if (pt.glyph) A.text(pt.x, pt.y, pt.glyph, pt.ci, al);
+    else px(pt.x, pt.y, pt.ci, al * (0.5 + Math.min(0.5, spd2 / 30))); // speed burns brighter
+    if (pt.tr) px(pt.x - pt.vx * 0.03, pt.y - pt.vy * 0.03, pt.ci, al * 0.35);
+    if (pt.t + 1 / 60 >= pt.life && pt.sec) fw(pt.sec, pt.x, pt.y, pt.ci); // crossette split
   }
   G.parts = G.parts.filter(pt => pt.t < pt.life);
 
@@ -3408,7 +3578,7 @@ function drawJudgment(dt) {
     // grade letter through the ascii filter
     const gradeCi = c.letter === 'S' ? 5 : c.letter === 'A' ? 0 : c.letter === 'B' ? 3 : c.letter === 'C' ? 2 : 7;
     bigText(x0 + pw / 2, py + 13, c.letter, 1, gradeCi, al);
-    const dtxt = (c.delta >= 0 ? '+' : '') + c.delta + ' FAVOR';
+    const dtxt = (c.delta >= 0 ? '+' : '') + c.delta + ' FAVOR'; if (c.letter === 'S') fw('peony', x0 + pw / 2, py + 14, 5);
     A.text(x0 + (pw - dtxt.length) / 2, py + 20, dtxt, c.delta >= 0 ? 3 : 7, al);
     // the vital stats under the grade — the number the god is pointing at
     A.text(x0 + Math.max(1, (pw - c.stat.length) / 2), py + 22, c.stat.slice(0, pw - 2), 1, al * 0.9);
@@ -3497,6 +3667,7 @@ function frame(now) {
   else if (G.state === 'title') drawTitle();
   else if (G.state === 'judgment') drawJudgment(dt);
   else if (G.state === 'dead') { drawDead(dt); drawHud(); }
+  else if (G.state === 'pool') { drawPool(dt); }
   else if (G.state === 'trance') {
     // the potion: wavy parallax psychedelia; the boss name resolves out of static
     G.tranceT += dt;

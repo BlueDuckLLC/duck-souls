@@ -36,7 +36,7 @@
     if (L.t0 === null) L.t0 = now();
 
     // menus: get into play (skip cutscenes/gallery/intro/howto/lore)
-    if (G.state === 'cinema' || G.state === 'gallery' || G.state === 'intro' || G.state === 'howto' || G.state === 'lore') { press('q'); return; }
+    if (G.state === 'pool' || G.state === 'trance' || G.state === 'cinema' || G.state === 'gallery' || G.state === 'intro' || G.state === 'howto' || G.state === 'lore') { press('q'); return; }
     if (G.state === 'title') { L.sessions++; press('q'); return; }
     if (G.state === 'judgment') { press(' '); return; }
     if (G.state === 'descend') return;
