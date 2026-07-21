@@ -1465,40 +1465,92 @@ function roomCleared() {
   }
 }
 
-// ---------- THE BOSSES: three original nightmares, every 3rd floor ----------
+// ---------- THE BOSSES: SEVEN nightmares, every floor. Same orb-break verb, but each differs
+// in HOW you earn the hit (env/mirror/fast/summoner/refractor/gravity/duo). Gates live in boss.js. --
 // Ritual: key -> chest -> POTION -> trance -> the fight. Phase logic lives in boss.js
 // (pure, certified); each form = unique sprite + 2 of the boss's 3 attacks + orb weakpoints.
 const BOSSES = [
   {
     id: 'leviathan', name: 'THE FEATHER-LEVIATHAN', tagline: 'a serpent that remembers the sky', ci: 3,
+    mechanic: 'env', // arena flips each form; orbs only vulnerable in the calm between shifts
     forms: [{ orbs: 3, atk: ['storm', 'sweep'] }, { orbs: 4, atk: ['sweep', 'dive'] }, { orbs: 5, atk: ['storm', 'dive'] }],
     sprites: [
       ['   ~~~###~~~   ', ' ~##########~ ', '~#o###########~', ' ~###~~~~####~ ', '   ~~~    ~~~  '],
       ['    ~###~   ', '  ~#####~  ', ' ~#o####~ ', '~########~', ' ~######~ ', '  ~~##~~  ', '   ~##~   '],
-      ['  ~ # ~ # ~  ', ' # ~ # ~ # ', '~#o#~###~#~', ' # ~ # ~ # ', '  ~ # ~ #  '],
+      // F3 rewrite (pixel review): a plumed serpent shedding feathers, keeps head+eye (was noise)
+      ['~#o####~  ', ' ~#####~  ', ' ~####~ ~ ', '~####~  ~ ', ' ~##~ ~ ~ '],
     ],
   },
   {
     id: 'inquisitor', name: 'THE CLOCKWORK INQUISITOR', tagline: 'it winds. it judges. it strikes.', ci: 5,
+    mechanic: 'mirror', // a delayed clone of your inputs carries the orb; hit it when you desync
     forms: [{ orbs: 3, atk: ['spiral', 'pendulum'] }, { orbs: 4, atk: ['pendulum', 'cogs'] }, { orbs: 5, atk: ['spiral', 'cogs'] }],
     sprites: [
       ['  #######  ', ' ##(o)(o)## ', '###########', ' ##|||||## ', '  #######  '],
       [' ##  ###  ## ', '##(o)===(o)##', ' ####|#|#### ', '  ##/   \\##  '],
-      ['#   ###   #', ' # (o|o) # ', '  ##|||##  ', ' #  |||  # ', '#   ###   #'],
+      // F3 rewrite (pixel review): widen so the two eyes stay legible when crushed
+      ['#   ###   #', ' # (o)|(o) # ', '  ##|||##  ', ' #  |||  # ', '#   ###   #'],
     ],
   },
   {
     id: 'king', name: 'THE DROWNED KING', tagline: 'he never stopped being royalty. only breathing.', ci: 6,
+    mechanic: 'fast', // relentless enrage rush; punish-window only after you dodge a flurry
     forms: [{ orbs: 3, atk: ['tide', 'grasp'] }, { orbs: 4, atk: ['grasp', 'whirl'] }, { orbs: 5, atk: ['tide', 'whirl'] }],
     sprites: [
       ['  |||||  ', ' ####### ', '#o#####o#', '#########', ' ##   ## '],
-      ['   |||||   ', '  #######  ', ' #o#####o# ', '~#########~', '~~##   ##~~'],
+      // F2 rewrite (pixel review): visibly SINKING — crown tilts, eye row drops, tide climbs
+      [' \\||||/  ', '  ~###~  ', ' #o###o# ', '~#######~', '~~## #~~~'],
       ['~~~|||||~~~', '~#########~', '~#o~###~o#~', '~~#######~~', ' ~~~~#~~~~ '],
+    ],
+  },
+  {
+    id: 'abbot', name: 'THE BROOD-ABBOT', tagline: 'the cowl is full of children', ci: 2,
+    mechanic: 'summoner', // orbs invuln while any add lives; adds optional (greed line)
+    forms: [{ orbs: 3, atk: ['grasp'] }, { orbs: 4, atk: ['grasp', 'sweep'] }, { orbs: 5, atk: ['sweep'] }],
+    sprites: [ // peaked hood + bottom-heavy brood + bare `o o` eyes (separates from Inquisitor)
+      ['   /\\    ', ' ~/###\\~ ', ' #( o o )#', ' ##ooo## ', '#ooooooo#', ' \\ooooo/ '],
+      ['   /\\    ', ' \\###/   ', '#( o o )#', '#ooooooo#', '(oo#ooo#oo)', ' \\ooooo/ '],
+      ['  ~###~  ', ' #( x )# ', '  #ooo#  ', ' #ooooo# ', '  ~###~  '],
+    ],
+  },
+  {
+    id: 'prism', name: 'THE REFRACTOR', tagline: 'the arena is a lens - bend the light back into it', ci: 4,
+    mechanic: 'refractor', // fires beams; only a beam you dash-redirect into its orbs counts
+    forms: [{ orbs: 3, atk: ['sweep'] }, { orbs: 4, atk: ['spiral'] }, { orbs: 5, atk: ['spiral', 'sweep'] }],
+    sprites: [ // crystalline, mass-preserving (pixel review) so it never deflates to zigzag mush
+      ['   /\\   ', '  /##\\  ', ' /#oo#\\ ', ' \\#oo#/ ', '  \\##/  ', '   \\/   '],
+      ['  /\\  /\\  ', ' /#\\ /#\\ ', '/o#\\/o#\\', '\\#o/\\#o/', ' \\/  \\/ '],
+      [' /\\ /\\ /\\ ', '/#\\/o\\/#\\', '\\o/\\#/\\o/', ' \\/ \\/ \\/ '],
+    ],
+  },
+  {
+    id: 'maw', name: 'THE COLLAPSED MAW', tagline: 'a mouth that fell into itself', ci: 7,
+    mechanic: 'gravity', // constant pull toward it; orbs on the far arc; pull inverts, telegraphed
+    forms: [{ orbs: 3, atk: ['whirl'] }, { orbs: 4, atk: ['whirl', 'tide'] }, { orbs: 5, atk: ['tide'] }],
+    sprites: [
+      [' (((@))) ', '((#####))', '(#(ooo)#)', '((#####))', ' (((@))) '],
+      ['\\((@))/', '(#ooo#)', '((@#@))', '(#ooo#)', '/((@))\\'],
+      // F3 rewrite (pixel review): DENSER on implosion (@ mass, inward arms) — was an airy sparkle
+      ['  |||  ', '\\(@@@)/', '-@ooo@-', '/(@@@)\\', '  |||  '],
+    ],
+  },
+  {
+    id: 'duo', name: 'THE GEMINI WARDENS', tagline: 'two that count; kill the tally, not the tallier', ci: 3,
+    mechanic: 'duo', // two bodies, each its own orb set; a form breaks only when BOTH stagger
+    forms: [{ orbs: 2, atk: ['sweep'] }, { orbs: 3, atk: ['spiral'] }, { orbs: 3, atk: ['sweep', 'spiral'] }],
+    twinSprites: [ // left = angular warden, right = round warden (track which is which)
+      ['  /\\  ', ' /o8\\ ', ' \\#8/ ', '  \\/  '],
+      [' ,--. ', '( o8 )', '( #8 )', ' `--\' '],
+    ],
+    sprites: [ // fallback single sprite (renderer prefers twinSprites for the duo)
+      [' /\\  ,--. ', '/o8\\( o8 )', '\\#8/( #8 )', ' \\/  `--\' '],
+      [' /\\  ,--. ', '/o8\\( o8 )', '\\#8/( #8 )', ' \\/  `--\' '],
+      [' /\\  ,--. ', '/o8\\( o8 )', '\\#8/( #8 )', ' \\/  `--\' '],
     ],
   },
 ];
 
-function bossForDepth() { return BOSSES[(G.rng() * BOSSES.length) | 0]; } // v10: random boss, every floor
+function bossForDepth() { return BOSSES[(G.rng() * BOSSES.length) | 0]; } // v10: random boss every floor (all 7)
 function bossRoomKey() { for (const [k, r] of G.rooms) if (r.type === 'stairs') return k; return '0,0'; }
 
 // THE POOL BREAK: the current frame's lit cells become billiard balls — scattered,
@@ -1575,6 +1627,12 @@ function startBossFight() {
     x: (X0 + X1) / 2, y: Y0 + (Y1 - Y0) * 0.3, vx: 0, vy: 0,
     atkT: 2, atkI: 0, staggerT: 0, t: 0, hitFlash: 0,
   };
+  if (def.mechanic === 'duo') { // two bodies, each its own orb set (split-attention fight)
+    G.boss.twins = [
+      { st: Boss.newBossState(def, G.depth), x: X0 + (X1 - X0) * 0.32, y: Y0 + (Y1 - Y0) * 0.3, atkT: 1.5, atkI: 0, staggerT: 0, hitFlash: 0, side: 0 },
+      { st: Boss.newBossState(def, G.depth), x: X0 + (X1 - X0) * 0.68, y: Y0 + (Y1 - Y0) * 0.3, atkT: 2.3, atkI: 0, staggerT: 0, hitFlash: 0, side: 1 },
+    ];
+  }
   G.locked = true;
   if (G.cur.mut !== 'WOODS') for (const [bx, by] of G.bars) G.solid[by * COLS + bx] = 1;
   msg(def.name, def.ci, 3);
@@ -1585,6 +1643,7 @@ function startBossFight() {
 
 function updateBoss(dt) {
   const b = G.boss, p = G.player, def = b.def;
+  if (def.mechanic === 'duo') return updateDuo(b, dt);
   b.t += dt; b.hitFlash = Math.max(0, b.hitFlash - dt);
   if (b.st.staggered) { // form break window
     b.staggerT -= dt;
@@ -1600,23 +1659,31 @@ function updateBoss(dt) {
   b.vx = Math.sin(b.t * 0.7) * 6; b.vy = Math.cos(b.t * 0.5) * 3;
   b.x += b.vx * dt; b.y += b.vy * dt;
   b.x = Math.max(X0 + 12, Math.min(X1 - 12, b.x)); b.y = Math.max(Y0 + 8, Math.min(Y1 - 20, b.y));
-  // attacks: alternate the form's two attacks, telegraphed
+  // per-mechanic side-effects: env arena calm/active, mirror echo+clone, summoned adds,
+  // gravity pull on the player, refractor beams. This is WHERE the bosses stop being reskins.
+  bossMechTick(b, dt);
+  // attacks: alternate the form's two attacks, telegraphed. FAST/enrage tightens only the GAP
+  // between attacks each form — never the windup (Boss.telegraph floors it at 250ms in bossAttack).
   b.atkT -= dt;
   if (b.atkT <= 0) {
     const atks = def.forms[b.st.form].atk;
     bossAttack(atks[b.atkI % atks.length], b);
     b.atkI++;
-    b.atkT = Math.max(1.4, 2.6 - G.depth * 0.08);
+    const enrage = def.mechanic === 'fast' ? (1 - 0.22 * b.st.form) : 1;
+    b.atkT = Math.max(0.7, (2.6 - G.depth * 0.08) * enrage);
   }
-  // orb hit-testing: slash arc, player bullets, stars, booms
+  // orb hit-testing: slash arc, player bullets, stars, booms, redirected beams. The mechanic
+  // GATE (bossOrbOpen) decides whether a landed hit counts — that gate is the real difference.
   const orbs = Boss.orbPositions(b.st.orbs, b.x, b.y, b.t);
+  b.orbsOpen = bossOrbOpen(b, 'slash'); // cached for the renderer (open=blue vs caged=grey)
   for (const o of orbs) {
-    let hit = false;
-    if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hit = true;
-    for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hit = true; pb.dead = true; }
-    for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hit = true;
-    for (const bm of G.booms) if (!bm.enemyBomb && Math.hypot(bm.x - o.x, bm.y - o.y) < 2.5) hit = true;
-    if (hit) {
+    let hitKind = null;
+    if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hitKind = 'slash';
+    for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hitKind = hitKind || 'bolt'; pb.dead = true; }
+    for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hitKind = hitKind || 'star';
+    for (const bm of G.booms) if (!bm.enemyBomb && Math.hypot(bm.x - o.x, bm.y - o.y) < 2.5) hitKind = hitKind || 'boom';
+    for (const be of (b.beams || [])) if (be.reflected && Math.hypot(be.x - o.x, be.y - o.y) < 2.6) { hitKind = 'beam'; be.spent = true; }
+    if (hitKind && bossOrbOpen(b, hitKind)) {
       b.st = Boss.hitOrb(b.st, def);
       b.hitFlash = 0.15;
       p.atkT = 0; // one swing breaks one orb — no multi-orb chains from a single slash
@@ -1640,7 +1707,8 @@ function updateBoss(dt) {
 function bossAttack(kind, b) {
   const p = G.player;
   const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
-  b.telegraphA = { kind, t: 0.45 }; // drawn as a flash before the volley lands
+  // windup floored at 250ms (Boss.telegraph); FAST/enrage may nudge it, never below the floor
+  b.telegraphA = { kind, t: Boss.telegraph(0.45, b.st.form, b.def.mechanic === 'fast') };
   setTimeout(() => { }, 0); // (attacks fire below after the telegraph via aimed spawns)
   if (kind === 'storm' || kind === 'spiral') {
     const n = kind === 'spiral' ? 10 : 8;
@@ -1663,6 +1731,167 @@ function bossAttack(kind, b) {
     for (let i = 0; i < 9; i++) G.bolts.push({ x: X0 + 4 + i * ((X1 - X0 - 8) / 8), y: Y1 - 2, vx: 0, vy: -11, life: 5 });
   }
   tone(140, 60, 0.3, 'sawtooth', 0.1);
+}
+
+// ---- per-boss mechanic RUNTIME (boss.js owns the pure gates; this is the wiring) ----
+function bossAddsAlive() { return G.enemies ? G.enemies.filter(e => !e.dead).length : 0; }
+
+// a reachable, non-solid arena cell for a summoned add (anti-softlock: never spawn in a wall)
+function reachableSpawn(b) {
+  for (let i = 0; i < 24; i++) {
+    const x = X0 + 4 + Math.random() * (X1 - X0 - 8), y = Y0 + 6 + Math.random() * (Y1 - Y0 - 12);
+    if (!solidAt(x, y)) return { x, y };
+  }
+  return { x: (X0 + X1) / 2, y: (Y0 + Y1) / 2 };
+}
+
+// THE GATE: is this boss's orb breakable by this hit source right now? The one real difference.
+function bossOrbOpen(b, hitKind) {
+  const m = b.def.mechanic;
+  if (m === 'refractor') return hitKind === 'beam';   // only a redirected beam breaks it
+  if (hitKind === 'beam') return false;               // beams count only for the refractor
+  if (m === 'env') return Boss.envVulnerable(b.t, b.st.form);
+  if (m === 'mirror') return b.desynced === true;
+  if (m === 'summoner') return Boss.addsGate(bossAddsAlive());
+  return true; // fast / gravity / duo: challenge is speed/space, orbs always breakable
+}
+
+// per-frame mechanic side-effects — WHERE the bosses stop being reskins
+function bossMechTick(b, dt) {
+  const def = b.def, p = G.player, m = def.mechanic;
+  const spd = 14 * (p.spdMult || 1);
+  if (m === 'env') { // arena flips each form; a light force during the ACTIVE window, calm = strike
+    const ph = Boss.envPhase(b.t, b.st.form); b.calm = ph.calm;
+    if (!ph.calm && p.dashT <= 0) {
+      if (b.st.form === 0) p.x += Math.sin(b.t * 0.9) * 8 * dt;   // wind push
+      else if (b.st.form === 1) p.y += 6 * dt;                    // heavy gravity
+      // form 2 = pitch dark (draw side); the orb self-illuminates so it's never hidden
+    }
+    return;
+  }
+  if (m === 'mirror') { // echo your input; a delayed clone replays it; desync exposes the orb
+    const iv = { vx: (keys['arrowright'] || keys['d'] ? 1 : 0) - (keys['arrowleft'] || keys['a'] ? 1 : 0),
+                 vy: (keys['arrowdown'] || keys['s'] ? 1 : 0) - (keys['arrowup'] || keys['w'] ? 1 : 0), t: b.t };
+    b.echo = b.echo || []; b.echo.push(iv); if (b.echo.length > 300) b.echo.shift();
+    const delay = Boss.mirrorDelay(b.st.form);
+    const past = b.echo.find(e => e.t >= b.t - delay) || b.echo[0];
+    b.echoVec = past; b.cloneX = (X0 + X1) - b.x; b.cloneY = b.y;
+    b.desynced = Boss.mirrorDesynced(iv.vx, iv.vy, past.vx, past.vy);
+    return;
+  }
+  if (m === 'summoner') { // spawn up to 3 REACHABLE adds when low + off cooldown
+    b.sinceSummon = (b.sinceSummon || 99) + dt; b.summonCd = (b.summonCd || 0) - dt;
+    if (b.summonCd <= 0 && Boss.canSummon(bossAddsAlive(), b.sinceSummon, 3)) {
+      const rng2 = mulberry32((b.t * 997) | 0);
+      const k = ['grunt', 'hopper', 'diver'][(b.t * 3 | 0) % 3];
+      spawnOne(k, rng2, () => reachableSpawn(b), G.cur);
+      b.sinceSummon = 0; b.summonCd = 2.0;
+    }
+    return;
+  }
+  if (m === 'refractor') { // fire beams on cadence; a dash near one reflects it back into the orbs
+    b.beams = (b.beams || []).filter(be => !be.spent && be.life > 0);
+    b.beamCd = (b.beamCd || 0) - dt;
+    if (b.beamCd <= 0) {
+      const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 1;
+      b.beams.push({ x: b.x, y: b.y, vx: dx / d * 20, vy: dy / d * 20, life: 3, reflected: false });
+      b.beamCd = Boss.beamCadence(b.st.form);
+    }
+    for (const be of b.beams) {
+      be.x += be.vx * dt; be.y += be.vy * dt; be.life -= dt;
+      if (!be.reflected && p.dashT > 0 && Math.hypot(be.x - p.x, be.y - p.y) < 4.5) {
+        const dx = b.x - be.x, dy = b.y - be.y, d = Math.hypot(dx, dy) || 1; // send it home
+        be.vx = dx / d * 26; be.vy = dy / d * 26; be.reflected = true; be.life = 3; SFX.dash();
+      }
+      if (!be.reflected && p.invulnT <= 0 && p.dashT <= 0 && Math.hypot(be.x - p.x, be.y - p.y) < 2.5) { hurtPlayer(b); be.spent = true; }
+    }
+    return;
+  }
+  if (m === 'gravity') { // constant pull (<=50% move speed); dash overpowers it (escape valve)
+    const pv = Boss.pullVector(p.x, p.y, b.x, b.y, spd, b.st.form, b.t);
+    if (p.dashT <= 0) { p.x += pv.vx * dt; p.y += pv.vy * dt; }
+    b.inverting = Boss.pullInverting(b.t);
+    return;
+  }
+}
+
+// per-mechanic overlays: the clone, the beams, the calm border, the inversion warning, add-arrows
+function bossMechDraw(b) {
+  const def = b.def, p = G.player, m = def.mechanic, spr = def.sprites[b.st.form];
+  if (m === 'env') {
+    if (b.calm) { for (let x = X0; x <= X1; x += 2) { px(x, Y0, 3, 0.6); px(x, Y1, 3, 0.6); } A.text(b.x - 5, b.y - spr.length / 2 - 3, 'STRIKE NOW', 3, 0.75); }
+    else if (b.st.form === 2) for (let i = 0; i < 220; i++) px(X0 + Math.random() * (X1 - X0), Y0 + Math.random() * (Y1 - Y0), 1, 0.07); // dark veil (orb still glows)
+    return;
+  }
+  if (m === 'mirror') { // the delayed clone carries the live orb; bright + labelled when desynced
+    blit(spr, b.cloneX - spr[0].length / 2, b.cloneY - spr.length / 2, def.ci, b.desynced ? 1.3 : 0.5, true);
+    if (b.desynced) A.text(b.cloneX - 3, b.cloneY - spr.length / 2 - 2, 'DESYNC', 3, 0.9);
+    return;
+  }
+  if (m === 'refractor') { for (const be of (b.beams || [])) { const c = be.reflected ? 3 : 4; px(be.x, be.y, c, 1); px(be.x - be.vx * 0.03, be.y - be.vy * 0.03, c, 0.5); } return; }
+  if (m === 'gravity' && b.inverting) { for (let a = 0; a < 14; a++) { const an = a / 14 * Math.PI * 2; px(b.x + Math.cos(an) * 18, b.y + Math.sin(an) * 12, 5, 0.5 + 0.5 * Math.sin(G.t * 20)); } return; }
+  if (m === 'summoner') { for (const e of (G.enemies || [])) { if (e.dead) continue; if (e.x < X0 || e.x > X1 || e.y < Y0 || e.y > Y1) A.text(Math.max(X0 + 1, Math.min(X1 - 1, e.x)), Math.max(Y0 + 1, Math.min(Y1 - 1, e.y)), '!', 5, 0.9); } return; }
+}
+
+// THE GEMINI WARDENS: two bodies, each its own orb set. A form advances only when BOTH are
+// staggered together; a lone stagger REVIVES if the partner doesn't join in time (split-attention).
+function updateDuo(b, dt) {
+  const p = G.player, def = b.def; b.t += dt;
+  const orbBonus = st => Math.max(0, Math.floor((st.depth - 3) / 3));
+  let allDefeated = true;
+  for (let ti = 0; ti < b.twins.length; ti++) {
+    const tw = b.twins[ti], partner = b.twins[1 - ti];
+    tw.hitFlash = Math.max(0, tw.hitFlash - dt);
+    if (tw.st.defeated) continue;
+    allDefeated = false;
+    if (tw.st.staggered) {
+      tw.staggerT -= dt;
+      if (Boss.duoBothStaggered(tw.st, partner.st)) { // both down together -> advance both forms
+        tw.st = Boss.endStagger(tw.st, def); partner.st = Boss.endStagger(partner.st, def);
+        tw.staggerT = 0; partner.staggerT = 0;
+        if (!tw.st.defeated) { msg('BOTH FALL - IT CHANGES', def.ci, 1.6); A.startGlitch(1, 0.4, 'pop'); SFX.die(); }
+      } else if (tw.staggerT <= 0) {           // partner never joined -> the standing one revives it
+        tw.st = { ...tw.st, staggered: false, orbs: def.forms[tw.st.form].orbs + orbBonus(tw.st) };
+        msg('THE OTHER REVIVES IT', 5, 1.2);
+      }
+      continue;
+    }
+    tw.x += Math.sin(b.t * 0.8 + ti * 3) * 6 * dt; tw.y += Math.cos(b.t * 0.6 + ti) * 3 * dt;
+    tw.x = Math.max(X0 + 10, Math.min(X1 - 10, tw.x)); tw.y = Math.max(Y0 + 8, Math.min(Y1 - 20, tw.y));
+    tw.atkT -= dt;
+    if (tw.atkT <= 0) { const atks = def.forms[tw.st.form].atk; bossAttack(atks[tw.atkI % atks.length], { x: tw.x, y: tw.y, t: b.t, st: tw.st, def }); tw.atkI++; tw.atkT = 1.6 + ti * 0.5; }
+    const orbs = Boss.orbPositions(tw.st.orbs, tw.x, tw.y, b.t);
+    for (const o of orbs) {
+      let hk = null;
+      if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hk = 'slash';
+      for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hk = 'bolt'; pb.dead = true; }
+      for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hk = 'star';
+      if (hk) {
+        tw.st = Boss.hitOrb(tw.st, def); tw.hitFlash = 0.15; p.atkT = 0;
+        burst(o.x, o.y, 6, 16, 20, 0.5); tone(900, 200, 0.12, 'square', 0.1); fw('ringlet', o.x, o.y, 6); G.shake = Math.max(G.shake, 2);
+        if (tw.st.staggered) { tw.staggerT = 1.6; msg('ONE STAGGERS - BREAK THE OTHER', 5, 1.4); G.shake = 5; fw('implode', tw.x, tw.y, def.ci); }
+        break;
+      }
+    }
+    if (Math.hypot(p.x - tw.x, p.y - tw.y) < 7 && p.invulnT <= 0 && p.dashT <= 0) hurtPlayer(tw);
+  }
+  if (allDefeated) { b.x = (X0 + X1) / 2; b.y = (Y0 + Y1) / 2; bossDefeated(); }
+}
+
+function drawDuo(b) {
+  const def = b.def;
+  for (let ti = 0; ti < b.twins.length; ti++) {
+    const tw = b.twins[ti]; if (tw.st.defeated) continue;
+    const spr = (def.twinSprites && def.twinSprites[ti]) || def.sprites[0];
+    const ci = ti === 0 ? 3 : 5; // left angular=sky, right round=vermillion (track which is which)
+    const bright = tw.st.staggered ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)) : (tw.hitFlash > 0 ? 1.5 : 0.95);
+    blit(spr, tw.x - spr[0].length / 2, tw.y - spr.length / 2, ci, bright, ti === 1);
+    const orbs = Boss.orbPositions(tw.st.orbs, tw.x, tw.y, b.t);
+    for (const o of orbs) { const sz = 0.8 + (o.depth + 1) * 0.5; rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, 6, 0.6 + (o.depth + 1) * 0.2); px(o.x, o.y - sz * 0.7, 0, 0.7 + 0.3 * Math.sin(G.t * 8)); }
+    if (tw.st.staggered) A.text(tw.x - 4, tw.y - spr.length / 2 - 2, 'STAGGERED', 5, 0.9);
+  }
+  // form pips (shared): both twins advance together
+  for (let f = 0; f < def.forms.length; f++) A.text((X0 + X1) / 2 - 3 + f * 3, Y0 + 2, f < b.twins[0].st.form ? 'x' : f === b.twins[0].st.form ? 'O' : 'o', f === b.twins[0].st.form ? 5 : 1, 0.9);
 }
 
 function bossDefeated() {
@@ -2749,7 +2978,18 @@ function drawCinema(dt) {
   G.cineT += dt; G.beatT += dt;
   const b = sc.beats[G.cineBeat];
   // auto-advance non-dialogue beats
-  if (b && !b.say && G.beatT > beatAuto(b)) advanceBeat();
+  // AUTO-ADVANCE so every scene plays hands-free as a 15-30s cinematic (a keypress still
+  // fast-forwards via onKey). Non-say beats hold for their fx duration; say beats hold until
+  // the line finishes typing PLUS a reading dwell scaled to its length.
+  if (b) {
+    if (!b.say) { if (G.beatT > beatAuto(b)) advanceBeat(); }
+    else {
+      const cps = (CAST[b.say] && CAST[b.say].glitchy) ? 18 : 34; // chars/sec typewriter rate
+      const typeT = b.text.length / cps;
+      const dwell = 1.1 + b.text.length * 0.038;                  // time to READ after it lands
+      if (G.beatT > typeT + dwell) advanceBeat();
+    }
+  }
 
   // ---- background layers ----
   if (st.bg === 'vine') cineVineDraw(G.cineT, false);
@@ -2842,21 +3082,26 @@ function drawCinema(dt) {
   }
 
   A.textC(2, sc.title, 0, 0.7);
-  if (!b) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- any key -', 5); }
-  else if (!b.say) A.textC(88, 'ESC: leave', 1, 0.25);
+  // beat-progress pips (filled up to the current beat) so the cinematic shows its own length
+  let dots = ''; for (let i = 0; i < sc.beats.length; i++) dots += i <= G.cineBeat ? '#' : '.';
+  A.textC(4, dots, 5, 0.5);
+  if (!b) { if (((G.t * 1.5) | 0) % 2 === 0) A.textC(86, '- press to return -', 5); }
+  else A.textC(88, 'SPACE skip forward   ESC skip scene', 1, 0.3);
 }
 
 function drawGallery(dt) {
   plasma(G.t * 0.05, 0.08, [6, 8, 1]);
   G.cineSeen = G.cineSeen || loadCine();
   A.textC(6, 'THE CUTSCENE LIBRARY', 0);
-  A.textC(8, 'all twelve, always — number keys to watch, any other to leave', 1, 0.7);
+  A.textC(8, 'arrows move  ENTER plays  ESC back  (number keys jump)', 1, 0.7);
+  const gi = G.galI || 0;
   CUTSCENES.forEach((c, i) => {
     const col = i % 2, row = (i / 2) | 0;
     const x = 20 + col * 62, y = 14 + row * 5;
     const seen = G.cineSeen.has(i);
-    const label = (i + 1).toString().padStart(2, ' ') + '. ' + c.title + (seen ? '  *' : '');
-    A.text(x, y, label, (i % 5) + 2, seen ? 1 : 0.75);
+    const on = i === gi;
+    const label = (on ? '> ' : '  ') + (i + 1).toString().padStart(2, ' ') + '. ' + c.title + (seen ? '  *' : '') + (on ? ' <' : '');
+    A.text(x, y, label, on ? 5 : (i % 5) + 2, on ? 1 : (seen ? 1 : 0.75));
   });
   A.textC(80, '* witnessed — the first plays automatically when a new soul begins', 4, 0.5);
 }
@@ -2921,15 +3166,16 @@ function drawBestiary(dt) {
     A.text(46, yy + 1, name, (ENEMIES[key] || { ci: 2 }).ci, 1);
     A.text(46, yy + 3, homage, 1, 0.55);
   });
-  // the three bosses, silhouetted until felled
-  A.text(96, 12, 'THE NIGHTMARES (every 3rd floor)', 8, 0.8);
+  // the seven nightmares, silhouetted until felled — 2 columns so all 7 fit in 90 rows
+  A.text(96, 10, 'THE NIGHTMARES (every floor)', 8, 0.8);
   BOSSES.forEach((bd, i) => {
     const met = G.ledger['felled_' + bd.id];
-    const y = 16 + i * 16;
-    if (met) { blit(bd.sprites[0], 100, y, bd.ci, 0.9, false); A.text(100, y + 7, bd.name, bd.ci, 1); }
+    const col = (i / 4) | 0, row = i % 4;
+    const x = 98 + col * 32, y = 14 + row * 17;
+    if (met) { blit(bd.sprites[0], x, y, bd.ci, 0.9, false); A.text(x, y + 7, bd.name, bd.ci, 1); }
     else {
-      for (let j = 0; j < 24; j++) px(100 + (j * 7) % 14, y + (j * 3) % 5, 1, Math.random() * 0.4);
-      A.text(100, y + 7, '? ? ?  (unfelled)', 1, 0.5);
+      for (let j = 0; j < 24; j++) px(x + (j * 7) % 14, y + (j * 3) % 5, 1, Math.random() * 0.4);
+      A.text(x, y + 7, '? ? ?  (unfelled)', 1, 0.5);
     }
   });
   if (((G.t * 1.5) | 0) % 2 === 0) A.textC(87, '- any key: back -', 5);
@@ -2938,7 +3184,9 @@ function drawBestiary(dt) {
 // ---------- key routing ----------
 function onKey(k) {
   if (k === 'm') { muted = !muted; return; }
-  if (k === 'c') {
+  // gameplay-only keys must not leak into menus (C used to shadow the title's Credits shortcut
+  // and fire useItem() on every screen). Gate C/use-item to the play state.
+  if (k === 'c' && G.state === 'play') {
     const now2 = performance.now();
     if (G.lastC && now2 - G.lastC < 280) { G.lastC = 0; tryJelly(); return; }
     G.lastC = now2;
@@ -2963,11 +3211,19 @@ function onKey(k) {
     return;
   }
   if (G.state === 'gallery') {
-    if (k >= '1' && k <= '9') { playCine(+k - 1, 'gallery'); return; }
-    if (k === '0') { playCine(9, 'gallery'); return; }
-    if (k === '-') { playCine(10, 'gallery'); return; }
-    if (k === '=') { playCine(11, 'gallery'); return; }
-    if (!mod) { G.state = 'title'; G.titleT = 0; }
+    const N = CUTSCENES.length; G.galI = G.galI || 0;
+    // number hotkeys still jump straight to a scene (guarded to the real count)
+    if (k >= '1' && k <= '9') { if (+k - 1 < N) playCine(+k - 1, 'gallery'); return; }
+    if (k === '0') { if (9 < N) playCine(9, 'gallery'); return; }
+    if (k === '-') { if (10 < N) playCine(10, 'gallery'); return; }
+    if (k === '=') { if (11 < N) playCine(11, 'gallery'); return; }
+    // arrow cursor over the 2-column grid: L/R = ±1, U/D = ±2 (down a row)
+    if (k === 'arrowleft' || k === 'a') { G.galI = (G.galI + N - 1) % N; return; }
+    if (k === 'arrowright' || k === 'd') { G.galI = (G.galI + 1) % N; return; }
+    if (k === 'arrowup' || k === 'w') { G.galI = (G.galI + N - 2) % N; return; }
+    if (k === 'arrowdown' || k === 's') { G.galI = (G.galI + 2) % N; return; }
+    if (k === 'enter' || k === ' ' || k === 'x') { playCine(G.galI, 'gallery'); return; }
+    if (k === 'escape') { G.state = 'title'; G.titleT = 0; return; } // ESC backs out — arrows no longer exit
     return;
   }
   if (G.state === 'intro') {
@@ -2989,6 +3245,7 @@ function onKey(k) {
     const MENU = ['start', 'library', 'bestiary', 'credits', 'rules', 'memories'];
     if (k === 'arrowdown' || k === 's') { G.menuI = ((G.menuI || 0) + 1) % MENU.length; return; }
     if (k === 'arrowup' || k === 'w') { G.menuI = ((G.menuI || 0) + MENU.length - 1) % MENU.length; return; }
+    if (k === 'arrowleft' || k === 'arrowright') return; // vertical menu — sideways is a no-op, never a launch
     // shortcuts still work
     if (k === 'l') { G.state = 'lore'; G.loreT = 0; return; }
     if (k === 'h') { G.state = 'howto'; G.howT = 0; GROW_NODES.forEach(n => n.bloomed = false); return; }
@@ -3004,12 +3261,13 @@ function onKey(k) {
       else if (sel === 'memories') { G.state = 'lore'; G.loreT = 0; }
       return;
     }
-    if (!mod) newRun();
+    // NO catch-all launch: an unmapped key on the title must do nothing (arrows/stray letters
+    // used to fall through here and immediately start a run). Only ENTER/SPACE/X on DESCEND starts.
     return;
   }
   if (G.state === 'credits') { if (!mod && G.credT > 0.4) { G.state = 'title'; G.titleT = 0; } return; }
   if (G.state === 'trance') { if (!mod && G.tranceT > 1) enterBossArena(); return; }
-  if (G.state === 'bestiary') { if (!mod) { G.state = 'title'; G.titleT = 0; } return; }
+  if (G.state === 'bestiary') { if (k === 'escape' || k === 'enter' || k === ' ' || k === 'x') { G.state = 'title'; G.titleT = 0; } return; }
   if (G.state === 'judgment' && (k === ' ' || k === 'enter' || k === 'x')) {
     if (G.judgeT < 0.8) { G.judgeT = 1.1; return; } // first press: land every card now
     nextFloor(); return;                            // second press: descend
@@ -3287,20 +3545,25 @@ function drawWorld() {
     }
   }
   // THE BOSS: form sprite, floating blue orb weakpoints, stagger flash, attack telegraph
-  if (G.boss) {
+  if (G.boss && G.boss.def.mechanic === 'duo') { drawDuo(G.boss); }
+  else if (G.boss) {
     const b = G.boss, def = b.def;
     const spr = def.sprites[b.st.form];
     const stag = b.st.staggered;
     const bBright = stag ? 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)) : (b.hitFlash > 0 ? 1.5 : 0.95);
     blit(spr, b.x - spr[0].length / 2, b.y - spr.length / 2, def.ci, bBright, false);
     if (b.telegraphA && b.telegraphA.t > 0) { b.telegraphA.t -= 1 / 60; rect(b.x - 2, b.y - 2, 4, 4, 5, 0.5 + 0.5 * Math.sin(G.t * 30)); }
-    // orb weakpoints ride the same fake-3D ring grammar as your health
+    // orb weakpoints ride the fake-3D ring grammar. OPEN = blue + pulsing (a hit counts),
+    // CAGED = grey + dim (the mechanic gate is shut). The player must always SEE which.
     const orbs = Boss.orbPositions(b.st.orbs, b.x, b.y, b.t);
+    const open = b.orbsOpen !== false;
     for (const o of orbs) {
       const sz = 0.8 + (o.depth + 1) * 0.5;
-      rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, 6, 0.6 + (o.depth + 1) * 0.2);
-      px(o.x, o.y - sz * 0.7, 0, 0.7);
+      rect(o.x - sz, o.y - sz * 0.7, sz * 2, sz * 1.4, open ? 6 : 7, open ? 0.6 + (o.depth + 1) * 0.2 : 0.3);
+      px(o.x, o.y - sz * 0.7, open ? 0 : 1, open ? 0.8 : 0.35);
+      if (open) px(o.x, o.y - sz * 0.7, 0, 0.4 + 0.4 * Math.sin(G.t * 8)); // live pulse
     }
+    bossMechDraw(b);
     // form pips
     for (let f = 0; f < def.forms.length; f++) A.text(b.x - 3 + f * 3, b.y - spr.length / 2 - 3, f < b.st.form ? 'x' : f === b.st.form ? 'O' : 'o', f === b.st.form ? 5 : 1, 0.9);
   }
@@ -3712,6 +3975,9 @@ function frame(now) {
   fpsEma = fpsEma * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
   window.__fps = Math.round(fpsEma);
   G.t += dt;
+  // scene BGM: one wiring point — the manager owns the state->track map, mute, and crossfades,
+  // and degrades silently if an audio file is absent (music.js).
+  if (window.Music) { Music.setMuted(muted); Music.sync(G.state, G.boss && G.boss.def && G.boss.def.id, dt); }
   G.shake = Math.max(0, G.shake - dt * 12);
   G.flash = Math.max(0, G.flash - dt * 2.5);
   G.surge = Math.max(0, (G.surge || 0) - dt * 2);

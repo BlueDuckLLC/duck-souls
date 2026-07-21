@@ -142,15 +142,35 @@ DARKNUT (armored — frontal hits bounce off its shield, flank it with the dash)
 (a spinning flower, invulnerable while whirling, vulnerable only when it lands). 24 new
 enemies total. The game is now branded **DANK SOULS** (the repo/URL stay duck-souls).
 
-## The Nightmares (v7 final stage) — bosses every 3rd floor
+## The Nightmares — SEVEN bosses, each a different *verb*
 
-On floors 3, 6, 9… the key→chest ritual yields a **POTION** instead of loot. Touch it and a
-psychedelic trance takes you — wavy parallax glyph-drift, breathing sine-rings, the boss's
-name resolving out of static — then you wake in the arena. Three original nightmares rotate:
-**THE FEATHER-LEVIATHAN**, **THE CLOCKWORK INQUISITOR**, **THE DROWNED KING**. Each has 3
-forms with unique sprites and attack pairs (feather-storms, sweeps, gear-spirals, cog
-summons, rising tides, charges) and floats **blue orb weakpoints** (Saros-style): break
-every orb to shatter the form; shatter all three forms to win (+500, a bestiary unlock, the
-ledger remembers). One swing breaks one orb. The phase machine is pure, node-tested, and
-certified (boss.js / boss_test.js). The BESTIARY (title menu) is a coin-op attract-mode
-roll of all 27 enemies with their homages; bosses stay silhouetted until felled.
+The key→chest ritual yields a **POTION**; touch it and a psychedelic trance takes you — wavy
+parallax glyph-drift, breathing sine-rings, the boss's name resolving out of static — then you
+wake in the arena. All seven float **blue orb weakpoints** and share ONE damage verb (one swing
+= one orb → the form staggers → next form; shatter all three forms to win, +500). What makes them
+**different fights is not the projectiles — it's HOW you earn the hit**, and each gate is a real,
+node-tested rule (no no-op mechanics). The orb renders **OPEN (blue, pulsing)** vs **CAGED (grey)**
+so the gate is never invisible, and every lethal windup is floored at 250ms (`Boss.telegraph`):
+
+- **THE FEATHER-LEVIATHAN** — *environment-changer.* The arena flips each form (wind → gravity →
+  pitch-dark); orbs are vulnerable ONLY in the telegraphed **calm** between shifts. In the dark, the
+  orb self-illuminates so the objective is never hidden.
+- **THE CLOCKWORK INQUISITOR** — *twin / mirror AI.* A delayed clone replays your own inputs and
+  carries the live orb; it's exposed only when you **desync** (move against your echo). The clone
+  glows + reads DESYNC so the opening is legible.
+- **THE DROWNED KING** — *fast / enrage rush.* Relentless; enrage tightens the **gap** between
+  attacks, never the windup. Dodge the flurry, then punish.
+- **THE BROOD-ABBOT** — *summoner.* Orbs are caged while adds live; clear them to expose the orbs
+  (or greed the orbs and eat the risk). Adds spawn **reachable**, capped at 3, cooldowned, with a
+  failsafe — no soft-locks. Off-screen adds get edge-arrows.
+- **THE REFRACTOR** — *light lens.* It fires beams; **dash-redirect a beam into its own orbs** —
+  a slash won't break them. Beams are guaranteed on a cadence so melee stays viable.
+- **THE COLLAPSED MAW** — *gravity well.* A constant pull (≤50% of your move speed) drags you off
+  the far-arc orbs; **dash overpowers it**, and the periodic pull-inversion is telegraphed.
+- **THE GEMINI WARDENS** — *duo.* Two bodies, each its own orb set; a form advances only when
+  **both** are staggered together — a lone stagger revives. Split your attention.
+
+The phase machine + every per-mechanic gate are pure and certified (`boss.js` / `boss_test.js`),
+with a headless runtime smoke (`boss_smoke.js`) driving thousands of live boss frames. The
+BESTIARY (title menu) is a coin-op attract-mode roll of all enemies + the seven nightmares,
+silhouetted until felled.
