@@ -133,7 +133,24 @@ class Env {
     else o.push(0, 0, 0, 0, 0, 0);
     // context
     o.push(Math.min(1, (G.depth || 0) / 10), G.cur && G.cur.cleared ? 1 : 0, Math.min(1, (G.enemies || []).length / 8), G.locked ? 1 : 0);
-    return o; // length = 7 + 9 + 4 + 6 + 4 = 30
+    // NAVIGATION: compass toward the stairs room + rel-dir to the best open door (the descent
+    // gradient — lets the adversary learn to leave cleared rooms and DESCEND, not just camp).
+    let sx = 0, sy = 0, ddx = 0, ddy = 0;
+    const cur = G.cur;
+    if (cur && G.rooms) {
+      let stairs = null; for (const r of G.rooms.values()) if (r.type === 'stairs') { stairs = r; break; }
+      if (stairs) { sx = Math.sign(stairs.gx - cur.gx); sy = Math.sign(stairs.gy - cur.gy); }
+      const midX = (G.X0 + G.X1) / 2, midY = (G.Y0 + G.Y1) / 2, doors = [];
+      if (cur.doors) {
+        if (cur.doors.n) doors.push([midX, G.Y0, 0, -1]);
+        if (cur.doors.s) doors.push([midX, G.Y1, 0, 1]);
+        if (cur.doors.e) doors.push([G.X1, midY, 1, 0]);
+        if (cur.doors.w) doors.push([G.X0, midY, -1, 0]);
+      }
+      if (doors.length) { doors.sort((a, b) => (b[2] * sx + b[3] * sy) - (a[2] * sx + a[3] * sy)); const d = doors[0]; ddx = (d[0] - p.x) / COLS; ddy = (d[1] - p.y) / ROWS; }
+    }
+    o.push(sx, sy, ddx, ddy);
+    return o; // length = 7 + 9 + 4 + 6 + 4 + 4 = 34
   }
 
   get actionCount() { return ACTIONS.length; }
