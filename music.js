@@ -38,19 +38,31 @@
   const Music = {
     trackFor,
     setMuted(m) { muted = !!m; if (muted) for (const k in cache) if (cache[k].pause) cache[k].pause(); },
-    set(track) { if (track !== curTrack) curTrack = track; if (curTrack && !muted) tryPlay(el(curTrack)); },
+    set(track) { if (track !== curTrack) curTrack = track; const a = curTrack && el(curTrack); if (a && !muted && a.paused) tryPlay(a); },
     tick(dt) {
       dt = Math.min(0.05, dt || 0.016);
       for (const k in cache) {
         const a = cache[k]; if (a.__missing) continue;
+        // BUGFIX: retry play for the current track whenever it's paused, NOT gated on volume. The
+        // fade must never outrun playback — else a blocked autoplay lets volume reach VOL while still
+        // paused, the old `a.volume < VOL` retry goes false, and the track never starts ("sometimes
+        // no music"). Only fade elements that are actually playing.
+        if (k === curTrack && !muted && a.paused) { tryPlay(a); continue; }
+        if (a.paused) continue;
         const tgt = (k === curTrack && !muted) ? VOL : 0;
         const step = dt / FADE * VOL;
         if (a.volume < tgt) a.volume = Math.min(tgt, a.volume + step);
         else if (a.volume > tgt) { a.volume = Math.max(tgt, a.volume - step); if (a.volume <= 0.001 && k !== curTrack) a.pause(); }
-        if (k === curTrack && !muted && a.paused && a.volume < VOL) tryPlay(a); // retry post-gesture
       }
     },
     sync(state, bossId, dt) { this.set(trackFor(state, bossId)); this.tick(dt); },
   };
   root.Music = Music;
+  // first-gesture unlock: browsers block autoplay until the user interacts. Kick the current
+  // track the instant any key/pointer lands, so music reliably starts on the first input.
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    const unlock = () => { const a = curTrack && el(curTrack); if (a && !muted && a.paused) tryPlay(a); };
+    window.addEventListener('keydown', unlock, { passive: true });
+    window.addEventListener('pointerdown', unlock, { passive: true });
+  }
 })(typeof window !== 'undefined' ? window : globalThis);
