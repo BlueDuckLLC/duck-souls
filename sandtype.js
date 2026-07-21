@@ -193,8 +193,14 @@
     const d = dirs[(r() * 4) | 0];
     const tx = x + d[0], ty = y + d[1];
     if (!inBounds(next, tx, ty) || get(next, tx, ty) !== EMPTY) return false;
-    let rooted = false;                                        // must touch a solid to take hold
-    for (const e of dirs) if (isSolid(get(next, tx + e[0], ty + e[1]))) { rooted = true; break; }
+    // Must root in a solid that is NOT itself moss. Counting moss as substrate let a lone seed
+    // bloom outward through open air forever (caught by 'moss alone in the air does NOT spread').
+    // Excluding it is also what makes moss TYPOGRAPHY: it can only ever hug a letterform.
+    let rooted = false;
+    for (const e of dirs) {
+      const c = get(next, tx + e[0], ty + e[1]);
+      if (c !== MOSS && isSolid(c)) { rooted = true; break; }
+    }
     if (!rooted) return false;
     set(next, tx, ty, MOSS);
     return true;

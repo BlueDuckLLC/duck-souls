@@ -1,0 +1,42 @@
+{
+  "collapse": {
+    "text": "DANK SOULS",
+    "frames": 39,
+    "px": [
+      792,
+      264
+    ],
+    "seamless": true,
+    "kb": 48
+  },
+  "overgrow": {
+    "text": "THE MAW",
+    "frames": 143,
+    "px": [
+      792,
+      264
+    ],
+    "seamless": true,
+    "kb": 6
+  },
+  "eaten": {
+    "text": "YOU DIED",
+    "frames": 120,
+    "px": [
+      792,
+      264
+    ],
+    "seamless": false,
+    "kb": 139
+  },
+  "tide": {
+    "text": "DUCK",
+    "frames": 180,
+    "px": [
+      792,
+      264
+    ],
+    "seamless": false,
+    "kb": 53
+  }
+}
