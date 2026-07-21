@@ -119,3 +119,43 @@ cannot fail was never claimed.
 **Regression at GREEN:** boss_test 50/50 · test.js 254/254 · fun_test 27/27 · combat 23/23 ·
 inventory 18/18 · `boss_fun_red.js` unchanged at 4 UNMEASURED (BF6–BF9 still require the bot to
 fight the boss — NOT claimed as fixed).
+
+---
+
+# ROUND 3 — behavioral attempt (2026-07-21): instrument repaired, verdicts HONESTLY VOID
+
+`node boss_fun_measure.mjs --sessions 6 --secs 75` → **`3 failed, 0 passed`**. BF6/BF7 are **VOID**,
+not RED-the-game: the validity gates fired and refused to let a broken instrument indict the boss.
+
+## Fixed (real instrument bugs, all bot-side)
+1. **BF7 boss-blind attribution.** The boss lives on `G.boss`, NOT in `G.enemies`, so every boss
+   body-charge hit logged as `offscreen/unknown, telegraphed:false`. BF7 would have read a **false
+   RED caused by the instrument**. Now attributed as `boss:<id>` with `telegraphed` read from the
+   same marker the renderer draws (`telegraphA.t > 0`) — never from internals a player can't see.
+2. **The bot could not start the game.** Title became a MENU (`start/library/…`, advances on
+   enter/space/x) in `f9e7378`; the bot still pressed `q`, a silent no-op. Diagnosed live at
+   `sessions=148, roomsSeen=0, state=title`. Fixed to press Enter (menuI defaults to `start`).
+3. **Encounter never flushed.** A fight still in progress at session end was dropped (one run
+   logged 3 boss-damage events and 0 encounters). Now flushed on `__botStop`.
+4. **Competence measured off death-floors**, which undercounts a bot that survives. Now `maxDepth`.
+
+## ⚠ Finding that outranks the boss work: AUTOTUNE'S INSTRUMENT WAS DEAD
+The title menu landed **2026-07-20** (`f9e7378`); the bot's `q` has been a no-op ever since, so a
+bot session after that commit **never entered play**. The only `AUTOTUNE_LEDGER.md` epoch is dated
+the same day with baseline `funProxy 0.300` and `0 accepted`. Any autotune run after that commit was
+hill-climbing on sessions where the bot sat on the menu — a generator tuning against a dead grader.
+*(Same-day ordering not proven from the ledger alone — verify before acting on the tune history.)*
+This is the fleet's own recurring class: a meter that cannot go red / a canary fooled by
+non-execution. **The fix above repairs autotune too, which is worth more than the BF6 verdict.**
+
+## Honest state — NOT green, and not faked
+| id | verdict | why |
+|---|---|---|
+| BF6 | **VOID** | bot reaches only floor 1 (0 deaths, maxDepth 1, 0 encounters) — fails the competence floor (3–5). Its boss verdicts are noise. |
+| BF7 | **VOID** | same gate. Attribution is now *correct*, but there is no sample to judge. |
+| BF8 | **UNMEASURED** | exploit seat not built. Claimed neither way. |
+
+**Next (do NOT skip to tuning):** make the bot competent again — it survives but never descends, so
+it is failing room-clear/stairs navigation, not the boss. Re-run the base-game competence check
+(floor 3–5) BEFORE any boss verdict is believed. A green obtained from an incompetent bot would be
+worth less than this VOID.

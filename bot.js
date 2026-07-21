@@ -8,6 +8,14 @@
   const L = window.__botLog = {
     sessions: 0, deaths: [], novel: [], rooms: [], choices: 0, roomsSeen: 0,
     mutsSeen: {}, itemsHeld: {}, damage: [], t0: null, events: [],
+    boss: [],   // one row per boss ENCOUNTER (BF6): {id, tForm2, formsCleared, staggers, dur}
+    maxDepth: 1, // deepest floor REACHED (competence gate; death-floors undercount a bot that lives)
+  };
+  let bossEnc = null;   // the encounter in progress
+  const flushBoss = () => {
+    if (!bossEnc) return;
+    L.boss.push({ id: bossEnc.id, tForm2: bossEnc.tForm2, formsCleared: bossEnc.form, staggers: bossEnc.staggers, dur: +(now() - bossEnc.t0).toFixed(2), open: true });
+    bossEnc = null;
   };
   const seen = { muts: new Set(), items: new Set(), lore: 0, events: new Set() };
   const now = () => performance.now() / 1000;
@@ -37,7 +45,10 @@
 
     // menus: get into play (skip cutscenes/gallery/intro/howto/lore)
     if (G.state === 'pool' || G.state === 'trance' || G.state === 'cinema' || G.state === 'gallery' || G.state === 'intro' || G.state === 'howto' || G.state === 'lore') { press('q'); return; }
-    if (G.state === 'title') { L.sessions++; press('q'); return; }
+    // TITLE is a MENU now (start/library/bestiary/credits/rules/memories) — it advances on
+    // enter/space/x, NOT on 'q'. The old 'q' press was a silent no-op: the bot sat on the menu
+    // forever (diagnosed 2026-07-21 at sessions=148, roomsSeen=0). menuI defaults to 0 = 'start'.
+    if (G.state === 'title') { L.sessions++; press('Enter'); return; }
     if (G.state === 'judgment') { press(' '); return; }
     if (G.state === 'descend') return;
     if (G.state === 'dead') {
@@ -55,6 +66,7 @@
     if (G.state !== 'play') return;
 
     const p = G.player;
+    if (G.depth > L.maxDepth) L.maxDepth = G.depth;
 
     // ---- instrumentation ----
     if (G.cur !== lastRoom) {
@@ -75,6 +87,21 @@
     const held = p.held ? p.held.kind : null;
     if (held && !seen.items.has(held)) { seen.items.add(held); note('item', held); L.itemsHeld[held] = 1; }
 
+    // BOSS ENCOUNTER instrumentation (BF6). "Reaches form 2" = st.form advances 0 -> 1.
+    // Timed from the first frame the boss is alive, closed when it dies or the run ends.
+    if (G.boss && G.boss.st && !G.boss.st.defeated) {
+      if (!bossEnc) {
+        bossEnc = { id: G.boss.def.id, t0: now(), form: G.boss.st.form, tForm2: null, staggers: 0, wasStag: false };
+        note('boss', G.boss.def.id);
+      }
+      if (G.boss.st.form > bossEnc.form) {
+        bossEnc.form = G.boss.st.form;
+        if (bossEnc.form >= 1 && bossEnc.tForm2 === null) bossEnc.tForm2 = +(now() - bossEnc.t0).toFixed(2);
+      }
+      if (G.boss.st.staggered && !bossEnc.wasStag) bossEnc.staggers++;
+      bossEnc.wasStag = !!G.boss.st.staggered;
+    } else if (bossEnc) { flushBoss(); }
+
     // damage forensics: what hit us, was it telegraphed, was it visible
     if (lastHp !== null && p.hp < lastHp) {
       let cause = 'unknown', tele = false, vis = false;
@@ -87,10 +114,27 @@
         const d = Math.hypot(b.x - p.x, b.y - p.y);
         if (d < best) { best = d; cause = 'bolt'; tele = true; vis = true; }
       }
+      // BOSS BODIES (BF7 fix, 2026-07-21). The boss lives on G.boss, NOT in G.enemies, so a
+      // body-charge hit (dive/grasp) fell through to 'offscreen/unknown, telegraphed:false' and
+      // BF7 would have read a FALSE red caused by the instrument, not the game. Telegraphed is
+      // read from the SAME marker the renderer draws (b.telegraphA.t > 0) — the windup the
+      // player can actually see — never from boss internals the player can't.
+      if (G.boss && G.boss.def) {
+        const bodies = G.boss.twins ? G.boss.twins.map(t => ({ x: t.x, y: t.y })) : [{ x: G.boss.x, y: G.boss.y }];
+        for (const bb of bodies) {
+          const d = Math.hypot(bb.x - p.x, bb.y - p.y);
+          if (d < best) {
+            best = d; cause = 'boss:' + G.boss.def.id; vis = true;
+            tele = !!(G.boss.telegraphA && G.boss.telegraphA.t > 0);
+          }
+        }
+      }
       if (best > 12) { cause = 'offscreen/unknown'; vis = false; }
+      // was this damage taken DURING a boss fight? (BF7 denominator)
+      const inBoss = !!(G.boss && G.boss.st && !G.boss.st.defeated);
       // in PITCH DARK, was the attacker actually lit?
       if (G.cur.mut === 'DARK' && G.lightAt) vis = vis && G.lightAt(p.x, p.y) > 0.15;
-      L.damage.push({ t: +(now() - L.t0).toFixed(2), cause, telegraphed: tele, onScreen: vis, mut: G.cur.mut || null });
+      L.damage.push({ t: +(now() - L.t0).toFixed(2), cause, telegraphed: tele, onScreen: vis, mut: G.cur.mut || null, boss: inBoss });
     }
     lastHp = p.hp;
 
@@ -122,6 +166,31 @@
       const wk = p.held.kind;
       if (wk === 'hammer') { if (p.chargeT > 0.9) hold('c', false); else hold('c', true); } // charge then release
       else if ((wk === 'whip' || wk === 'boomerang' || wk === 'sporebow') && Math.random() < 0.15) press('c');
+    }
+
+    // BOSS FIGHT (BF6). Non-oracle by construction: the bot reads only what the screen shows —
+    // orb positions (drawn) and the telegraph marker (drawn) — never orb timers or the next
+    // attack index. It dodges a visible windup, otherwise closes on the nearest orb and swings.
+    if (G.boss && G.boss.st && !G.boss.st.defeated && window.Boss) {
+      const B = G.boss;
+      const telegraphing = !!(B.telegraphA && B.telegraphA.t > 0);
+      const bodies = B.twins ? B.twins.map(t => ({ x: t.x, y: t.y, st: t.st })) : [{ x: B.x, y: B.y, st: B.st }];
+      // nearest body, then its nearest orb
+      let tgt = null, td = 1e9;
+      for (const bb of bodies) {
+        const orbs = Boss.orbPositions(bb.st.orbs, bb.x, bb.y, B.t);
+        for (const o of orbs) {
+          const d = Math.hypot(o.x - p.x, o.y - p.y);
+          if (d < td) { td = d; tgt = o; }
+        }
+        const d = Math.hypot(bb.x - p.x, bb.y - p.y);
+        if (!tgt && d < td) { td = d; tgt = bb; }
+      }
+      if (telegraphing && td < 16) {                      // visible windup + we're in range -> get out
+        if (p.dashCd <= 0) hold('shift', true);
+        steer(p, { x: p.x * 2 - B.x, y: p.y * 2 - B.y });
+      } else if (tgt) steer(p, tgt);
+      return;
     }
 
     // fight: dodge the lunge, close otherwise
@@ -215,5 +284,5 @@
   }
 
   window.__botStart = () => { L.t0 = now(); window.__botIv = setInterval(step, 60); };
-  window.__botStop = () => { clearInterval(window.__botIv); clearHold(); return L; };
+  window.__botStop = () => { clearInterval(window.__botIv); clearHold(); flushBoss(); return L; };
 })();
