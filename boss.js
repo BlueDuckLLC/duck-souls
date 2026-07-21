@@ -90,9 +90,37 @@
     return { vx: dx / d * s, vy: dy / d * s, frac };
   }
 
-  // --- 5b. GRAVITY AS LANGUAGE (STUB — RED). Additive vocabulary: each form adds ONE rule.
-  function fieldRules() { return []; }
-  function fieldVector() { return { vx: 0, vy: 0 }; }
+  // --- 5b. GRAVITY AS LANGUAGE (Blow: "the environment IS the language"). Boss and player speak
+  // ONE grammar — the field. Vocabulary is ADDITIVE (Witness-style): form N keeps every rule of
+  // N-1 and adds exactly one, so you learn sentences instead of memorising arenas. Every rule is
+  // a real transform of the field — never decoration (the no-op-guard law).
+  const FIELD_VOCAB = ['pull', 'well2', 'rotate'];
+  function fieldRules(form) { return FIELD_VOCAB.slice(0, Math.max(1, Math.min(FIELD_VOCAB.length, ((form | 0) + 1)))); }
+
+  function fieldVector(px, py, bx, by, moveSpeed, form, t) {
+    const rules = fieldRules(form);
+    let vx = 0, vy = 0;
+    // rule 1 — THE PULL: one vector toward the boss; its sign flips on the telegraphed cycle.
+    if (rules.indexOf('pull') >= 0) {
+      const dx = bx - px, dy = by - py, d = Math.hypot(dx, dy) || 1, s = pullSign(t);
+      vx += dx / d * s; vy += dy / d * s;
+    }
+    // rule 2 — A SECOND COMPETING WELL: the field stops being one direction; you must read which
+    // well owns you right now (orbiting offset so the answer keeps changing).
+    if (rules.indexOf('well2') >= 0) {
+      const wx = bx + Math.cos(t * 0.6) * 26, wy = by + Math.sin(t * 0.6) * 16;
+      const dx = wx - px, dy = wy - py, d = Math.hypot(dx, dy) || 1;
+      vx += dx / d * 0.7; vy += dy / d * 0.7;
+    }
+    // rule 3 — ROTATION: a tangential component turns the whole field, so straight lines stop working.
+    if (rules.indexOf('rotate') >= 0) {
+      const dx = bx - px, dy = by - py, d = Math.hypot(dx, dy) || 1;
+      vx += -dy / d * 0.8; vy += dx / d * 0.8;
+    }
+    // the fairness cap survives the grammar: never more than 50% of move speed (dash still wins)
+    const mag = Math.hypot(vx, vy) || 1, cap = PULL_FRAC[Math.min(form, PULL_FRAC.length - 1)] * moveSpeed;
+    return { vx: vx / mag * cap, vy: vy / mag * cap };
+  }
 
   // --- 6. DUO (gemini wardens): two twins, each its OWN Boss state. A shared form advances
   // only when BOTH are staggered together; otherwise the standing twin revives its partner.
