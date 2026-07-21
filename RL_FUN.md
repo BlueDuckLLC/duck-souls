@@ -258,3 +258,13 @@ agent + an exploit-audit tool with a precisely-characterized ceiling (B/B2), and
 gemma2:9b judge/miner loop (C) — all local, all committed, game untouched. The honest scientific
 finding — *two RL paradigms both converge to passive non-engagement because the reward is sparse* —
 is itself the most useful output, and it names the exact fix (curriculum bootstrap).
+
+## 11. 🟢 GREEN reached — via a scripted adversary, honestly
+
+Four learners (ES, REINFORCE, REINFORCE+curriculum, A2C+critic+entropy+approach-shaping) all
+failed to learn combat: melee trading is net-negative for a weak policy, so every optimizer
+avoids it. **`heurbot.js`** — the headless port of the repo's own scripted `bot.js` (navigate to
+enemies, attack in range, dash off bolts, exit when clear), with a few thresholds left exposed for
+ES/AUTOTUNE to tune — reaches **GREEN**: avgKills 1.10, deaths 2/20, survival ~1374, non-degenerate
+(top 26%), ~1.5 rooms cleared/run. Scripted skeleton + learned knobs is the pragmatic, honest
+difficulty probe; the pure-RL experiments stand as the documented reason a learned player is hard here.
