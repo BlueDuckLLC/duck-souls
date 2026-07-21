@@ -502,7 +502,7 @@ function newRun() {
     dir: { x: 1, y: 0 }, spdMult: 1, swords: 0,
     dashT: 0, dashCd: 0, dashHadDanger: false,
     atkT: 0, atkCd: 0, invulnT: 0,
-    held: null, digestT: 0, ivx: 0, ivy: 0, chaliceClean: false,
+    held: null, weapon: null, digestT: 0, ivx: 0, ivy: 0, chaliceClean: false,
     chargeT: 0, orbitA: 0,
   };
   G.pbolts = []; G.stars = []; G.bat = null; G.booms = []; G.patches = [];
@@ -1095,7 +1095,20 @@ function playerStats() {
   };
 }
 
+// TWO holders (operator law: one weapon slot, one artifact slot). p.held = the ARTIFACT holder
+// (gun/star/hotdog/lantern/bomb/key/chalice); p.weapon = the WEAPON holder (sword/hammer/whip/
+// rapier/boomerang/flail/sporebow). heldKind() stays the artifact kind; weaponKind() is the weapon.
 function heldKind() { return G.player.held ? G.player.held.kind : null; }
+function weaponKind() { return G.player.weapon ? G.player.weapon.kind : null; }
+const isWeaponKind = k => !!(ITEMS[k] && ITEMS[k].weapon);
+// route a pickup into its holder (via the tested Inv module); drop whatever it displaces
+function takeItem(kind, ammo) {
+  const p = G.player, slot = Inv.slotFor(kind, isWeaponKind); // 'weapon' | 'artifact'
+  const cur = slot === 'weapon' ? p.weapon : p.held;
+  if (cur) G.pickups.push({ x: p.x, y: p.y, kind: cur.kind, ammo: cur.ammo, slot: true, ph: 0, cd: 1.2 });
+  const obj = { kind, ammo };
+  if (slot === 'weapon') p.weapon = obj; else p.held = obj;
+}
 
 function useItem() {
   const p = G.player;
@@ -1184,8 +1197,8 @@ function weaponAttack(kind) {
     G.wfx = { kind, a: baseA, t: 0.15, reach: w.reach };
     tone(600, 900, 0.1, 'triangle', 0.06);
   } else if (kind === 'sporebow') {
-    if ((p.held.ammo || 0) <= 0) { msg('SPORE-BOW EMPTY (clear a room to grow)', 1, 1.2); return; }
-    p.held.ammo--;
+    if ((p.weapon && p.weapon.ammo || 0) <= 0) { msg('SPORE-BOW EMPTY (clear a room to grow)', 1, 1.2); return; }
+    p.weapon.ammo--;
     G.booms.push({ spore: true, x: p.x, y: p.y, vx: p.dir.x * 22, vy: p.dir.y * 22, vz: 8, z: 0, dmg: w.dmg });
     G.wfx = { kind, a: baseA, t: 0.2, reach: w.reach };
     tone(300, 500, 0.12, 'triangle', 0.05);
@@ -1300,7 +1313,7 @@ function die() {
 function slash() {
   const p = G.player, st = playerStats();
   if (p.atkCd > 0) return;
-  const rapier = heldKind() === 'rapier';
+  const rapier = weaponKind() === 'rapier';
   p.atkCd = rapier ? 0.10 : 0.22; p.atkT = rapier ? 0.09 : 0.13; // rapier: fast, precise
   const reach = rapier ? 5 : SLASH_REACH;
   SFX.slash();
@@ -1453,7 +1466,7 @@ function roomCleared() {
   fw('ring2', G.player.x, G.player.y, 3); // room-clear ring
   // the spore-bow grows back a seed each cleared room, so it stays a weapon not a consumable
   const p = G.player;
-  if (heldKind() === 'sporebow') p.held.ammo = Math.min(8, (p.held.ammo || 0) + 1);
+  if (weaponKind() === 'sporebow') p.weapon.ammo = Math.min(8, (p.weapon.ammo || 0) + 1);
   A.startGlitch(0.6, 0.25, 'pop');
   const delay = curse('velox') ? FX.CURSE_VELOX : 0;
   G.doorOpenAt = G.t + delay;
@@ -1678,7 +1691,7 @@ function updateBoss(dt) {
   b.orbsOpen = bossOrbOpen(b, 'slash'); // cached for the renderer (open=blue vs caged=grey)
   for (const o of orbs) {
     let hitKind = null;
-    if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hitKind = 'slash';
+    if (p.atkT > 0 && Combat.weaponHits(weaponKind() || 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, weaponKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hitKind = 'slash';
     for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hitKind = hitKind || 'bolt'; pb.dead = true; }
     for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hitKind = hitKind || 'star';
     for (const bm of G.booms) if (!bm.enemyBomb && Math.hypot(bm.x - o.x, bm.y - o.y) < 2.5) hitKind = hitKind || 'boom';
@@ -1863,7 +1876,7 @@ function updateDuo(b, dt) {
     const orbs = Boss.orbPositions(tw.st.orbs, tw.x, tw.y, b.t);
     for (const o of orbs) {
       let hk = null;
-      if (p.atkT > 0 && Combat.weaponHits(heldKind() && ITEMS[heldKind()].weapon ? heldKind() : 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, heldKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hk = 'slash';
+      if (p.atkT > 0 && Combat.weaponHits(weaponKind() || 'sword', p.x, p.y, o.x, o.y, p.dir.x, p.dir.y, weaponKind() === 'rapier' ? 5 : SLASH_REACH, isSolidCell)) hk = 'slash';
       for (const pb of G.pbolts) if (Math.hypot(pb.x - o.x, pb.y - o.y) < 2.2) { hk = 'bolt'; pb.dead = true; }
       for (const s2 of G.stars) if (Math.hypot(s2.x - o.x, s2.y - o.y) < 2.2) hk = 'star';
       if (hk) {
@@ -2103,7 +2116,7 @@ function updatePlay(dt) {
     p.invulnT = Math.max(p.invulnT, 0); p.atkT = 0; // no sword arc while jelly
     // skip normal movement/attack for this frame's remainder markers
   }
-  const heldK = heldKind();
+  const heldK = weaponKind();
   const wpn = ITEMS[heldK] && ITEMS[heldK].weapon;
   // X/SPACE is the ATTACK button. A held weapon OWNS it (its own hit + animation);
   // bare-handed (or holding a non-weapon) you get the base sword. No free sword underneath.
@@ -2500,9 +2513,8 @@ function updatePlay(dt) {
         gd.dead = true;
         G.run.bonus = (G.run.bonus || 0) - gd.price;
         G.floorStats.spent += gd.price;
-        if (ITEMS[gd.kind]) { // hands item
-          if (p.held) G.pickups.push({ x: p.x, y: p.y, kind: p.held.kind, ammo: p.held.ammo, slot: true, ph: 0, cd: 1.2 });
-          p.held = { kind: gd.kind, ammo: gd.kind === 'gun' ? 6 : gd.kind === 'bomb' ? 3 : undefined };
+        if (ITEMS[gd.kind]) { // routes to the weapon or artifact holder
+          takeItem(gd.kind, gd.kind === 'gun' ? 6 : gd.kind === 'bomb' ? 3 : undefined);
         } else if (gd.kind === 'heart') p.hp = Math.min(p.maxhp, p.hp + 1);
         else if (gd.kind === 'sword') p.swords = Math.min(MAX_SWORDS, p.swords + 1);
         msg('"THANK YOU." (-' + gd.price + ')  AURUM APPROVES', 5, 2); fw('glyphs', gd.x, gd.y, 5);
@@ -2578,8 +2590,7 @@ function updatePlay(dt) {
       SFX.pickup();
       burst(pk.x, pk.y, 5, 12, 12, 0.5);
       if (pk.slot) {
-        if (p.held) G.pickups.push({ x: p.x, y: p.y, kind: p.held.kind, ammo: p.held.ammo, slot: true, ph: 0, cd: 1.2 });
-        p.held = { kind: pk.kind, ammo: pk.ammo };
+        takeItem(pk.kind, pk.ammo);
         if (pk.kind === 'chalice') { p.chaliceClean = true; msg('THE CHALICE. DELIVER IT UNTOUCHED.', 5, 2.4); }
         else msg('TOOK ' + ITEMS[pk.kind].label + ' (' + ITEMS[pk.kind].hint + ')', ITEMS[pk.kind].ci, 1.6);
       } else if (pk.kind === 'heart') {
@@ -3763,13 +3774,13 @@ function drawHud() {
   }
   A.text(128, 0, muted ? 'MUTED' : '', 1, 0.5);
   // row 2: what you hold + what's wrong with this room
+  // the TWO holders: a WEAPON slot (row 2) and an ARTIFACT slot (row 3)
+  const wk = p.weapon && p.weapon.kind;
+  const wAmmo = wk === 'sporebow' && p.weapon.ammo != null ? ' x' + p.weapon.ammo : '';
+  A.text(2, 2, wk ? 'WEAPON: ' + ITEMS[wk].label + wAmmo : 'WEAPON: -- (X: bare fists)', wk ? ITEMS[wk].ci : 1, wk ? 1 : 0.5);
   const hk = p.held && p.held.kind;
-  const ammoTxt = p.held && (hk === 'gun' || hk === 'bomb' || hk === 'sporebow') && p.held.ammo != null ? ' x' + p.held.ammo : '';
-  const useBtn = p.held ? (ITEMS[hk].weapon ? '  ' : '  [C] ') : '';
-  const heldTxt = p.held
-    ? 'HELD: ' + ITEMS[hk].label + ammoTxt + useBtn + ITEMS[hk].hint
-    : 'HELD: -- (bare fists: X slash)';
-  A.text(2, 2, heldTxt, p.held ? ITEMS[p.held.kind].ci : 1, p.held ? 1 : 0.5);
+  const aAmmo = p.held && (hk === 'gun' || hk === 'bomb') && p.held.ammo != null ? ' x' + p.held.ammo : '';
+  A.text(2, 3, hk ? 'ARTIFACT: ' + ITEMS[hk].label + aAmmo + '  [C] ' + ITEMS[hk].hint : 'ARTIFACT: -- (find one)', hk ? ITEMS[hk].ci : 1, hk ? 1 : 0.5);
   if (G.cur.mut) A.text(46, 2, '[ ' + MUT[G.cur.mut].name + ' ]', MUT[G.cur.mut].ci, 0.8 + 0.2 * Math.sin(G.t * 3));
   if (p.digestT > 0) A.text(72, 2, 'DIGESTING ' + p.digestT.toFixed(1), 2, 0.8);
   // minimap with actual geometry: rooms sit where they sit, so you can navigate back
