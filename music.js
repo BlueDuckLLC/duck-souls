@@ -23,8 +23,17 @@
   }
   function tryPlay(a) { if (a.__missing || !a.play) return; try { const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {} }
 
+  // Bosses that own a theme on disk. prism's was cut 2026-07-21 (operator: "yuk"), and
+  // because el() degrades silently on a missing mp3, dropping it without this set would
+  // have played DEAD AIR through the whole fight — a silent regression, which is the
+  // worst kind. A boss with no theme borrows one instead.
+  const BOSS_THEMES = ['leviathan', 'inquisitor', 'king', 'abbot', 'maw', 'duo'];
+  const BORROWED = 'judgment';
+
   function trackFor(state, bossId) {
-    if (state === 'play' && bossId) return 'boss_' + bossId;   // 7 boss themes
+    if (state === 'play' && bossId) {
+      return BOSS_THEMES.indexOf(bossId) >= 0 ? 'boss_' + bossId : BORROWED;
+    }
     switch (state) {
       case 'play': case 'descend': return 'explore';
       case 'judgment': return 'judgment';

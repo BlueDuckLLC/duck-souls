@@ -1,5 +1,5 @@
 {
-  "_note": "KIE/Suno V5 instrumental. ALL 13/13 tracks downloaded + trimmed to ~48s loops (loudnorm -18 LUFS, seam fades). music.js lazy-loads audio/<track>.mp3.",
+  "_note": "KIE/Suno V5 instrumental. 12 tracks (boss_prism cut 2026-07-21 \u2014 prism borrows 'judgment' via music.js BOSS_THEMES) downloaded + trimmed to ~48s loops (loudnorm -18 LUFS, seam fades). music.js lazy-loads audio/<track>.mp3.",
   "downloaded": [
     "title",
     "explore",
@@ -11,7 +11,6 @@
     "boss_inquisitor",
     "boss_king",
     "boss_abbot",
-    "boss_prism",
     "boss_maw",
     "boss_duo"
   ],

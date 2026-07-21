@@ -106,9 +106,10 @@ if (has('pixelState')) {
 // ── stagger: this is what makes it read as DEPOSITION, not a slide ───────────────────────────
 if (has('pixelState')) {
   t('pixels do NOT all land at once', (() => {
+    const TOTAL = 8 * 25;
     const at = age => { let landed = 0; for (let li = 0; li < 8; li++) for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) if (P(li, r, c, age).dy === 0) landed++; return landed; };
-    const mid = at(0.35);
-    return mid > 0 && mid < 8 * 25;
+    for (let age = 0; age < 3; age += 0.01) { const n = at(age); if (n > 0 && n < TOTAL) return true; }
+    return false;   // no partial moment ever existed => everything landed together
   })());
   t('later letters land after earlier ones', (() => {
     let firstDone = 0, lastDone = 0;
@@ -135,7 +136,10 @@ if (has('pixelState')) {
     for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) seen.add(P(0, r, c, 0.12).dy);
     return seen.size > 1;
   })());
-  t('the module holds no Math.random', !/Math\.random/.test(require('fs').readFileSync(__dirname + '/texttype.js', 'utf8')));
+  // NB: the real oracle is 'same inputs give the same output' above — a behavioural check no
+  // comment can fake. This grep is a cheap belt-and-braces and must match a CALL, not the words:
+  // the first version matched the module's own comment saying it uses no Math.random.
+  t('the module makes no Math.random CALL', !/Math\.random\s*\(/.test(require('fs').readFileSync(__dirname + '/texttype.js', 'utf8')));
 }
 
 // ── options: a caller can turn it off or retune it ───────────────────────────────────────────

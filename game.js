@@ -237,14 +237,34 @@ const FONT = {
   Y: ['#   #', ' # # ', '  #  ', '  #  ', '  #  '],
   ' ': ['     ', '     ', '     ', '     ', '     '],
 };
-function bigText(cx, y, str, scale, ci, a, wave = 0) {
+// TYPOGRAPHY DYNAMICS: every piece of big text in the game is DEPOSITED, not drawn — each glyph
+// pixel falls into place grain by grain. bigText is the single funnel for all large text, so the
+// effect reaches the title, boss names, YOU DIED, cutscene headers and menus from this one place.
+// Offsets come from texttype.js (34 certified assertions); past texttype.SETTLE every pixel is at
+// EXACTLY its target with alpha 1, forever — legibility outranks the effect. Pass opts.noType to
+// opt a surface out. Falls back to the old static path if the module is absent.
+const _TT = (typeof TextType !== 'undefined') ? TextType : null;
+function bigText(cx, y, str, scale, ci, a, wave = 0, opts) {
+  opts = opts || {};
   const w = str.length * 6 * scale - scale;
   let x = Math.round(cx - w / 2), li = 0;
+  // age = how long this line has been on screen. Callers that track their own timer pass it;
+  // otherwise the scene clock is used, so a line deposits once on arrival and then stays put.
+  const age = opts.age != null ? opts.age : (G.t - (G.textT0 || 0));
+  const tt = (_TT && !opts.noType) ? opts : null;
   for (const ch of str.toUpperCase()) {
     const gl = FONT[ch] || FONT[' '];
     const yo = wave ? Math.sin(G.t * 2.4 + li * 0.75) * wave : 0;
     for (let r = 0; r < 5; r++) for (let c = 0; c < 5; c++) {
-      if (gl[r][c] === '#') rect(x + c * scale, y + yo + r * scale, scale, scale, ci, a);
+      if (gl[r][c] !== '#') continue;
+      if (tt) {
+        const st = _TT.pixelState(li, r, c, age, tt);
+        if (!st.on) continue;
+        rect(x + c * scale + st.dx * scale * 0.5, y + yo + r * scale + st.dy * scale * 0.35,
+             scale, scale, ci, a * st.a);
+      } else {
+        rect(x + c * scale, y + yo + r * scale, scale, scale, ci, a);
+      }
     }
     x += 6 * scale; li++;
   }
