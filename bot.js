@@ -152,8 +152,13 @@
     // use the held item sometimes (bombs/gun/star see real play)
     if (p.held && G.enemies.length && Math.random() < 0.03) press('c');
 
-    // in the armory, walk to THIS session's chosen weapon and equip it
-    if (G.cur.type === 'armory' && !p.held) {
+    // In the armory, walk to THIS session's chosen weapon and equip it.
+    // GUARD IS p.weapon, NOT p.held (2026-07-21). The game has TWO holders (game.js:1110 —
+    // "one weapon slot, one artifact slot"): armory weapons land in p.weapon, artifacts in
+    // p.held. Guarding on !p.held meant the condition stayed TRUE after equipping, so the bot
+    // steered at the pedestal every frame FOREVER — diagnosed as 35s parked in an armory,
+    // roomsSeen=1, 0 deaths, never descending. This is what actually sank the competence floor.
+    if (G.cur.type === 'armory' && !p.weapon) {
       L.weapon = L.weapon || ['hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'][(Math.random() * 6) | 0];
       const ped = (G.cur.items || []).find(i => i.kind === L.weapon && !i.dead);
       if (ped) { steer(p, ped); return; }
@@ -233,10 +238,18 @@
   }
 
   // BFS on a coarse (2-cell) grid of the current room's solids; returns next waypoint.
-  function bfsStep(G, sx, sy, gx, gy) {
+  function bfsStep(G, sx, sy, gx, gy) { // two-pass: wide clearance first, then strict
+    return bfsPass(G, sx, sy, gx, gy, true) || bfsPass(G, sx, sy, gx, gy, false);
+  }
+  // A DOOR is a 1-2 cell gap in a wall, so the 3x3-clearance test marks every cell near it as
+  // blocked and the path can never go THROUGH a doorway — the bot walked to the door and stalled
+  // (diagnosed 2026-07-21: moving but roomsSeen=1 over 90s, maxDepth 1). Pass 1 keeps the old
+  // wall-hugging avoidance; pass 2 retries with an EXACT cell test so gaps are traversable.
+  function bfsPass(G, sx, sy, gx, gy, clearance) {
     if (!G.solid) return null;
     const COLS = 160, ROWS = 90, step = 2;
     const solidAround = (x, y) => {
+      if (!clearance) { const cx = x | 0, cy = y | 0; return !!(cx >= 0 && cx < COLS && cy >= 0 && cy < ROWS && G.solid[cy * COLS + cx]); }
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         const cx = (x + dx) | 0, cy = (y + dy) | 0;
         if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) continue;
@@ -269,6 +282,7 @@
 
   // prefer doors leading to rooms we haven't entered; else rotate. Door gaps sit at THIS
   // room's own edges (rooms vary in size now), so read the live bounds.
+  const doorMemo = { room: null, i: 0, since: 0 };
   function doorTarget(G) {
     const dirs = { n: [0, -1], e: [1, 0], s: [0, 1], w: [-1, 0] };
     const x0 = G.X0 || 1, x1 = G.X1 || 158, y0 = G.Y0 || 5, y1 = G.Y1 || 88;
@@ -279,8 +293,18 @@
       const r = G.rooms.get((G.cur.gx + dirs[d][0]) + ',' + (G.cur.gy + dirs[d][1]));
       return r && !r.entered;
     });
-    const pick = (fresh.length ? fresh : open)[((G.t / 4) | 0) % (fresh.length || open.length || 1)];
-    return pos[pick] || { x: 80, y: 47 };
+    // COMMIT to one door (2026-07-21). This used to be `((G.t/4)|0) % n`, which re-picked the
+    // target every 4s: with two open doors the bot steered west, then south, then west, hovering
+    // at the centroid and never reaching either. Diagnosed as 35s parked in an armory at (70,52)
+    // with doors w+s open, room cleared, 0 enemies — it survived forever and never descended,
+    // which is exactly what sank the competence floor. Now: pick a door, STICK to it, and only
+    // rotate if this room hasn't changed in ~6s (so a blocked door can't deadlock the run).
+    const cands = fresh.length ? fresh : open;
+    if (!cands.length) return { x: 80, y: 47 };
+    const rk = G.cur.gx + ',' + G.cur.gy;
+    if (doorMemo.room !== rk) { doorMemo.room = rk; doorMemo.i = 0; doorMemo.since = now(); }
+    else if (now() - doorMemo.since > 6) { doorMemo.i = (doorMemo.i + 1) % cands.length; doorMemo.since = now(); }
+    return pos[cands[doorMemo.i % cands.length]] || { x: 80, y: 47 };
   }
 
   window.__botStart = () => { L.t0 = now(); window.__botIv = setInterval(step, 60); };

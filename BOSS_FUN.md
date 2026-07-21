@@ -159,3 +159,28 @@ non-execution. **The fix above repairs autotune too, which is worth more than th
 it is failing room-clear/stairs navigation, not the boss. Re-run the base-game competence check
 (floor 3–5) BEFORE any boss verdict is believed. A green obtained from an incompetent bot would be
 worth less than this VOID.
+
+## ROUND 3b — bot repair continued (2026-07-21): 3 more rot layers, competence STILL not restored
+
+The bot had **four** independent rot layers, each a silent no-op rather than an error. Each was the
+game growing a feature the instrument never learned:
+
+| # | rot | symptom | fix |
+|---|---|---|---|
+| 1 | title became a MENU (`f9e7378`) | `sessions=148, roomsSeen=0`, parked at title | press Enter, not `q` |
+| 2 | game grew TWO holders (`p.weapon` + `p.held`, game.js:1110) | armory branch guarded `!p.held`, stayed true after equipping ⇒ steered at the pedestal **every frame forever**; 35s parked, 0 deaths | guard on `!p.weapon` |
+| 3 | `doorTarget` re-picked every 4s (`((G.t/4)|0)%n`) | with 2 open doors it oscillated around the centroid, never committing | commit to a door, rotate only after ~6s of no room change |
+| 4 | BFS required a clear 3×3 | a door is a 1–2 cell gap, so no path could go THROUGH a doorway | two-pass: clearance pass, then strict-cell pass |
+
+**Result:** bot went from *cannot start the game* → starts, equips a weapon, clears rooms, fights,
+and **reached a boss** (1 encounter, 12 boss-damage events captured — the BF7 attribution works).
+
+**But competence is NOT restored:** 4 of 5 sessions still end `maxDepth 1, 0 deaths` — the bot
+survives but fails to descend. `avgFloor 1.00` vs the 3–5 target ⇒ **BF6/BF7 stay VOID**. A verdict
+from this instrument would be noise. Not green, and deliberately not claimed as green.
+
+**Handoff — the remaining symptom is specific:** sessions split bimodally (either it plays properly
+and dies 4×, or it never leaves floor 1 with zero deaths). That signature says a *state-specific
+stall*, not slow navigation — most likely another branch that `return`s every frame on a condition
+the bot can never satisfy (the same shape as rot #2). Find it by logging which branch executes on a
+stalled session, exactly as rot #2 was found. Do NOT tune the boss until `avgFloor` sits in 3–5.

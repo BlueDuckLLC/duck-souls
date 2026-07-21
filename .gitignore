@@ -2,3 +2,5 @@ node_modules/
 params_candidate.json
 .vercel
 autotune-cron.log
+_diag*.mjs
+boss_fun_*.txt
