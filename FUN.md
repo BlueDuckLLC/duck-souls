@@ -23,6 +23,40 @@ Panel that produced these: `PLAYTEST.md` (3 industry seats, 2026-07-20).
 | F11 | Kiting is not strictly dominant | slash reach vs contact radius margin at depth 1 | ≤ 3.0 cells |
 | F12 | Grades can't be farmed | judge(interrupts:100) vs judge(interrupts:5); aurum(tuftsCut:98) | equal; < 0.72 |
 
+## RL-INSTRUMENTED BLOCK (added 2026-07-20, committed at RED)
+
+Today's RL work gave `/tdd-fun` a new *instrument*: a competent headless adversary
+(`heurbot`, GREEN — avgKills 1.10, deaths 2/20) plus four reward-maximizing learners
+(ES/CEM, REINFORCE, REINFORCE+curriculum, A2C+critic+entropy) on a deterministic
+158k-frame/s core. That lets us ask questions a scripted bot could never answer — chiefly
+*"what does an optimizer do when it is allowed to be selfish?"* All three below are **RED**
+and each names a real design problem, not a bug.
+
+| id | claim | metric | threshold | RED (2026-07-20) |
+|----|-------|--------|-----------|------------------|
+| F42 | **Engaging beats fleeing** — a player optimizing purely for reward should FIGHT, not camp. If avoidance wins, the risk/reward of engaging is mis-tuned. | avgKills of the strongest reward-maximizing agent, 20 greedy episodes | ≥ 1.0 | **0.0** — all 4 learners converged to passive camping |
+| F43 | **A competent player reaches the difficulty band** — AUTOTUNE's target is floor 3–5; a competent agent must actually get there. | max floor reached by `heurbot` over 20 runs | ≥ 3 | **1** |
+| F44 | **No single-action dominance under optimization** — when an optimizer is turned loose, its best strategy must not collapse to one button. | top-action share in the exploit audit of the strongest *trained* agent | < 0.75 | **0.75–0.94** (down 94% / dash 82% / right 75% / use 75%) |
+
+**What F42 actually means (the load-bearing one):** four independent optimizers, given a
+free choice, all discovered that *not engaging* beats engaging — surviving ~1000 steps by
+hugging an edge. In a roguelite where you must fight to progress, that is a statement about
+the game, not only about the RL. Either engaging must pay more, or avoidance must cost more
+(time pressure, a closing arena, VELOX-style idle penalties). Do **not** "fix" this by
+tuning the bot.
+
+**Honest limits (per learning #6 — recorded, not overclaimed):**
+- F43's RED is **partly an instrument limit**: `heurbot` has no cross-room pathfinding to the
+  stairs, and descent is gated behind clearing rooms. Some of that "1" is the bot, not the
+  game. F43 may only be trustworthy after the bot can navigate — flagged, not silently passed.
+- F42/F44 are measured on *reward-maximizers we built*, which had a small budget and a tiny
+  net. They are evidence that avoidance is locally optimal, **not** proof that no policy could
+  do better. A stronger agent (behaviour cloning from `heurbot` → RL fine-tune) is the honest
+  next instrument; until then these are RED-with-a-caveat.
+- Shaping is not a fix: we tried, and the agent **reward-hacked** it (fitness 116→237 while
+  real kills stayed 0). Any future shaping should be potential-based (see the night-shift
+  deposit on policy invariance) so it provably cannot change the optimal policy.
+
 ## Honest limits
 
 This measures the load-bearing preconditions of delight — pace, fairness, readability,
