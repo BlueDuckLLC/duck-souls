@@ -116,3 +116,46 @@ Ran against the 15/15 green build and broke five of it:
 6. **[M] Weapons disagree with walls** — hammer/whip/flail/boomerang skip `losBlocked` the
    sword respects, so they hit through maze walls. Fix: gate all weapon hits through LOS.
    Criterion: enemy behind a solid midpoint takes 0 damage from ALL six weapons (extend F10).
+
+---
+
+# PANEL — 2026-07-21 · two critical LENSES (operator-requested)
+
+⚠ **These are design LENSES simulating a known critical stance. They are NOT quotations of, or
+statements by, Jonathan Blow or Yoko Ono.** Persona-playtest per `/tdd-fun` step 1; every finding
+carries a measurable pass criterion, as that step requires.
+
+## LENS A — the Blow stance (mechanics must mean something; no cargo-cult; a green must be able to go red)
+
+1. **AUTOTUNE's difficulty term is inverted.** `autotune.mjs:62` — `agg.floors += max(...deaths.map(floor), 1)` is the floor the bot **died on**, not reached; a deathless session contributes 1 and eats the maximum too-hard penalty (`floorLo:3`, `W.difficulty:1.5`). The proxy rewards *a corpse getting deep*. Also: `W.hyp` is constant across every acceptable candidate (dead weight, it's also the hard gate); `W.variety` **pays cash for mutator count** — and the only ACCEPT in ledger history is `mutRoll 0.65→0.73`, i.e. the machine bought more content because that's what it was paid for. **CRITERION:** `{deaths:[],maxDepth:4}` must score **strictly higher** than `{deaths:[{floor:4}],maxDepth:4}`; deleting `W.hyp` must leave candidate ordering identical; add a liveness deadman (exit non-zero, write no ledger, if baseline `roomsSeen==0`). **CUT** `W.variety` + `mutRoll` from KNOBS.
+2. **F42 already answered the core question and was not acted on.** Four independent reward-maximizers converged to **0.0 kills** (camping). Shipped since: nameplate, orb cap, thresholds, bot repairs — nothing changing engage risk/reward. The learner code + reward fn are **not in this repo**, so the headline fun-finding is irreproducible. **CRITERION:** reward fn + learner in-repo reproducing `avgKills ≈ 0.0 ± 0.2` on the unmodified game; then after a *design* change, `avgKills ≥ 1.0` over 20 greedy episodes and camping share < 0.75. **KEEP, and freeze new nouns until the verb pays.**
+3. **BF1 was a tautology.** `Math.max(0.25,x) >= 0.25` — true for every input. ✅ **VERIFIED AND FIXED** this session (see below).
+4. **The "gravity vocabulary" has no gradient.** `fieldVector` renormalizes to a constant magnitude, so the field is identical at every distance — a wind, not a well; "well2"/"rotate" sum then renormalize, so the player receives one arrow and can never isolate a rule. `boss_test.js` certifies rules are "REAL" via a `toFixed(4)` string difference (any perturbation passes). **BF3 was aimed at `pullVector`, which game.js calls 0 times.** ✅ **VERIFIED AND FIXED** this session. **CRITERION (now BF14):** |field| at 2× distance ≤ 0.6× at 1×. Measured **1.000 → RED**. **CUT** `well2`/`rotate` unless they pass legibility (testers identify active rules ≥60% vs 33% chance).
+5. **Boons are 9/10 scalars.** Five gods, persistent favor, a judgment cutscene — mechanical payload is eight numbers and a mulligan. The honesty law checks a key is *referenced*, not that it changes a decision. MORS doesn't grade a choice at all (`score = 0.15 + depth/5`). **CRITERION:** matched seeded sessions with/without each effect must diverge by KL ≥ 0.05 or shift a named decision rate ≥20%; target ≥7/10. Current coverage **0/10**.
+6. **5 of 15 mutators are decoration.** HASTE scales both sides uniformly (fast-forward; MOLASSES earns its place *because* dash is exempt); FLICKER is render-only; LOWGRAV/RUBBER are the same knockback scalar twice; PHASE deletes the value of positioning. **CRITERION:** delete all five → F15 decision-room rate must not drop and distinct-decisions/floor stays within noise. If cutting a third costs nothing measurable, it was padding.
+7. **The orb cap kept half the HP bloat.** Diagnosis was "orb count isn't difficulty"; remedy doubled it and stopped. All 7 bosses share one damage verb, so depth only changes how many times you perform an already-understood gate. **CRITERION:** `DEPTH_BONUS_CAP = 0`; median time-to-kill at depth 12 within ±25% of depth 3 while death rate at 12 is ≥1.5× that at 3. Difficulty via speed/danger/tighter windows.
+8. **F13–F19 are marked GREEN on screenshots.** FUN.md's own prose says "not measured… a stronger bot is owed," four lines under a table headed GREEN — and the instrument was dead the whole period. **CRITERION:** every GREEN row carries a number + the transcript file that produced it; current GREEN-without-number **7**, target **0**.
+
+## LENS B — the Ono / Fluxus stance (the instruction is the work; subtraction reveals it; absence is content)
+
+1. **The tutorial is already the artwork, filed under a menu item.** `GROW_NODES` is nine instruction pieces ("be seed. be elsewhere."), each with its keybinding printed directly beneath — the poem given, then taken back by its own footnote. **INSTRUCTION:** *Write the rules as a plant would hear them. / Show only the plant's version. / Let them find out what the keys do by pressing them. / Do not translate.* **CRITERION:** keypresses to reach that screen from boot = **5**, pass **0** (it is the opening screen); `nd.key` strings rendered there = **9**, pass **0**.
+2. **The piece venerates patience and mechanically forbids stillness.** Rooms open only at `enemies.length === 0`, so a pacifist descent is **impossible** — while F42 says the only strategy the machine found on its own was stillness. **INSTRUCTION:** *Make a door that opens for stillness. / Stand where everything wants to touch you. / Do not raise your hand. / Count to sixty. / The door opens. The gods grade you anyway.* **CRITERION:** pacifist floor 1→2 with zero damage dealt: currently **impossible**; pass = possible on ≥1 of 200 seeds with all five grades still issued.
+3. **One silence, 0.9s long, against a glitch every 8–20s forever.** **CRITERION:** longest continuous screen with no input accepted, no instruction drawn, nothing moving = **0.0s**; pass **≥8s once per run**. **SUBTRACT** the ambient glitch timer.
+4. **The absences are drawn, then captioned.** MEMORIES renders all 15 fragments, unearned ones as dots — real co-authorship — then prints `(not yet earned)` in every hole. **CRITERION:** occurrences of that string = **15**, pass **0**; remove the `N OF 15` counter so the total is unknowable until complete.
+5. **Judgment with no forgiveness.** The only mercy (MORS refusing a death) is gated at favor ≥70 — available only to players who don't need it. **CRITERION:** ≥1 effect that activates at favor ≤25 and deactivates above it; currently **0**.
+6. **The thesis is a becoming the player never witnesses.** "Every frame is becoming text" — yet **0 frames** show the pre-dissolve raster; the title screen *describes* the transformation instead. **INSTRUCTION:** *Show the picture. / Let one character appear. / Then another. / Do not show the picture again.* **CRITERION:** seconds/run where the raster is visible = **0.0**, pass **≥2s**.
+7. **Two names, one defended.** README says the game is branded DANK SOULS; `grep` = 2 hits in README, **0 in the build**. **CRITERION:** distinct proper names across shipped text = **2**, pass **1**.
+
+---
+
+## ✅ Panel findings VERIFIED against code, and FIXED, same session
+
+| claim | verification | action |
+|---|---|---|
+| BF1 is a tautology | `telegraph()` returns exactly 0.25 for base 0, −99, 1e9 and form 50 — **cannot fail** | **REWRITTEN** to test the floor CONSTANT + the wiring (`telegraphA = {… Boss.telegraph(`). **Mutation-proven:** floor→0.1 flips RED, restore→PASS |
+| BF3 measures dead code | `grep -c` game.js: `pullVector` **0**, `fieldVector` **2** | **REPOINTED** at the live `fieldVector`; still PASS at the 50% cap |
+| field has no gradient | |field| ratio at 2× distance = **1.000** at every form | **BF14 added** (threshold 0.6 pinned before measuring) → **RED**, honestly |
+| autotune difficulty inverted | `agg.floors += max(...deaths.map(floor),1)` confirmed at `autotune.mjs:62` | logged; **not yet fixed** — autotune repair is its own task |
+
+Board after the panel: `boss_fun_red.js` → **4 failed, 6 passed** (was 3f/6p with two fake greens).
+Two of my own "PASS" rows were worthless. The panel was worth more than the greens it deleted.

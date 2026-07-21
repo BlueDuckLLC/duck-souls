@@ -14,13 +14,20 @@ function check(id, claim, measurable, ok, detail) {
   rows.push([ok ? 'PASS' : 'RED', id, claim, detail]); ok ? pass++ : fail++;
 }
 
-// --- BF1: every boss windup is telegraphed >= 250ms even at max enrage, all forms.
+// --- BF1 (REWRITTEN 2026-07-21 after the Blow-lens panel). The ORIGINAL BF1 asserted
+// min(telegraph(...)) >= TELEGRAPH_FLOOR, i.e. Math.max(0.25, x) >= 0.25 — TRUE FOR EVERY
+// POSSIBLE INPUT. Verified: base 0, -99, 1e9 and form 50 all return exactly 0.25. It was a
+// green that could not go red, the exact sin this suite exists to prevent. Replaced with two
+// MUTATION-SENSITIVE checks: the floor CONSTANT itself, and the wiring (no damage path may
+// compute a windup without going through Boss.telegraph).
 {
-  let min = Infinity;
-  for (const base of [0.3, 0.4, 0.5]) for (const form of [0, 1, 2]) for (const en of [false, true])
-    min = Math.min(min, Boss.telegraph(base, form, en));
-  check('BF1', 'Every boss windup telegraphs >= 250ms at max enrage', true,
-    min >= Boss.TELEGRAPH_FLOOR - 1e-9, `min telegraph across forms/enrage = ${min.toFixed(3)}s (floor ${Boss.TELEGRAPH_FLOOR})`);
+  const fs2 = require('fs');
+  const GSRC = fs2.readFileSync(__dirname + '/game.js', 'utf8');
+  const floorOk = Boss.TELEGRAPH_FLOOR >= 0.25;                    // flips if anyone lowers it
+  const usesTelegraph = /telegraphA\s*=\s*\{[^}]*Boss\.telegraph\(/.test(GSRC); // wiring, not identity
+  check('BF1', 'Telegraph floor is >=250ms AND the boss windup actually routes through it', true,
+    floorOk && usesTelegraph,
+    `TELEGRAPH_FLOOR=${Boss.TELEGRAPH_FLOOR} (>=0.25 ${floorOk}); game.js windup routes through Boss.telegraph=${usesTelegraph}`);
 }
 
 // --- BF2: the vulnerability (calm) window never closes below the 0.8s fairness floor.
@@ -32,15 +39,31 @@ function check(id, claim, measurable, ok, detail) {
     minCalm >= 0.8 - 1e-9, `min calmLen across forms = ${minCalm.toFixed(2)}s`);
 }
 
-// --- BF3: gravity pull never exceeds 50% of move speed — you can always out-walk it.
+// --- BF3 (REPOINTED 2026-07-21). Was measuring Boss.pullVector — which game.js calls ZERO
+// times (verified: pullVector 0 hits, fieldVector 2 hits). A fairness gate aimed at dead code
+// is a false green. Now measures the LIVE fieldVector the game actually uses.
 {
   const ms = 1.0; let maxFrac = 0;
   for (const form of [0, 1, 2]) for (let t = 0; t < 8; t += 0.1) {
-    const v = Boss.pullVector(0, 0, 10, 0, ms, form, t);
+    const v = Boss.fieldVector(0, 0, 10, 0, ms, form, t);
     maxFrac = Math.max(maxFrac, Math.hypot(v.vx, v.vy) / ms);
   }
-  check('BF3', 'Gravity pull <= 50% move speed (always out-walkable)', true,
-    maxFrac <= 0.5 + 1e-9, `max pull fraction of move speed = ${(maxFrac * 100).toFixed(1)}%`);
+  check('BF3', 'Field pull <= 50% move speed on the LIVE path (always out-walkable)', true,
+    maxFrac <= 0.5 + 1e-9, `max |fieldVector| = ${(maxFrac * 100).toFixed(1)}% of move speed (live fn, not dead pullVector)`);
+}
+
+// --- BF14 (NEW, from the Blow-lens panel 2026-07-21). Threshold pinned BEFORE measuring:
+// a gravity WELL must weaken with distance, else it is a wind and teaches nothing.
+// |field| at 2x distance must be <= 0.6x |field| at 1x distance.
+{
+  let worst = 0;
+  for (const form of [0, 1, 2]) {
+    const near = Boss.fieldVector(0, 0, 10, 0, 1, form, 1), far = Boss.fieldVector(0, 0, 20, 0, 1, form, 1);
+    const mn = Math.hypot(near.vx, near.vy) || 1e-9, mf = Math.hypot(far.vx, far.vy);
+    worst = Math.max(worst, mf / mn);
+  }
+  check('BF14', 'Gravity field has a real distance GRADIENT (not a renormalized wind)', true,
+    worst <= 0.6, `|field| ratio at 2x distance = ${worst.toFixed(3)} (need <=0.60); 1.000 means renormalized => no falloff`);
 }
 
 // --- BF4: no softlock — the summoner cannot infinitely re-summon (cooldown + cap gate).

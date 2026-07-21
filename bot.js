@@ -38,6 +38,19 @@
 
   let lastRoom = null, lastHp = null, lastDepth = 0, lastLore = 0;
 
+  // Anti-livelock guard for "steer at a target and return" branches. Returns true if we've been
+  // chasing the same target for >5s (meaning we cannot actually acquire it), in which case the
+  // caller must fall through to something else. Cleared whenever the target changes.
+  const chase = { key: null, since: 0, until: 0 };
+  function chaseStuck(t) {
+    const k = t ? (t.kind || 'piece') + ':' + Math.round(t.x) + ',' + Math.round(t.y) : null;
+    const tn = now();
+    if (chase.until > tn && chase.key === k) return true;      // still benched
+    if (chase.key !== k) { chase.key = k; chase.since = tn; chase.until = 0; return false; }
+    if (tn - chase.since > 5) { chase.until = tn + 8; return true; }  // bench it for 8s
+    return false;
+  }
+
   function step() {
     const G = window.G;
     if (!G) return;
@@ -163,9 +176,19 @@
       const ped = (G.cur.items || []).find(i => i.kind === L.weapon && !i.dead);
       if (ped) { steer(p, ped); return; }
     }
-    // grab loose items / piece
-    const want = (G.cur.items || []).find(i => i.slot && !i.dead && !i.pedestal) || G.cur.piece;
-    if (want && !G.enemies.length) { steer(p, want); return; }
+    // Grab loose items / piece.
+    // ROT #5 (2026-07-21): this chased ANY slot-item, including a loose WEAPON — but takeItem()
+    // DROPS the displaced weapon back on the floor (game.js:1109). With a weapon already held the
+    // bot picked up A (dropping B), then wanted B, picked up B (dropping A)... an infinite
+    // weapon-swap LIVELOCK. Signature: armory, cleared, 0 enemies, wpn=true, wantKind=flail,
+    // roomsSeen stuck at 1, zero deaths. Never chase a weapon we cannot net-gain.
+    const WEAPON_KINDS = ['sword', 'hammer', 'whip', 'rapier', 'boomerang', 'flail', 'sporebow'];
+    const takeable = i => i.slot && !i.dead && !i.pedestal && !(p.weapon && WEAPON_KINDS.includes(i.kind));
+    const want = (G.cur.items || []).find(takeable) || G.cur.piece;
+    // Generic anti-livelock: this branch-returns-every-frame class has now bitten 3x (armory
+    // pedestal, weapon swap, door oscillation). If we chase one target >5s without the room
+    // changing, abandon it for a while instead of returning forever.
+    if (want && !G.enemies.length && !chaseStuck(want)) { steer(p, want); return; }
     // fire the held weapon when it wants to be fired (ranged/charge weapons)
     if (p.held && G.enemies.length) {
       const wk = p.held.kind;
