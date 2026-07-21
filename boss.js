@@ -7,8 +7,14 @@
   else root.Boss = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
 
-  // deeper runs float extra orbs per form (loops get harder)
-  const depthBonus = depth => Math.max(0, Math.floor((depth - 3) / 3));
+  // deeper runs float extra orbs per form (loops get harder) — but BOUNDED (BF9, 2026-07-21).
+  // Uncapped this was ⌊(depth−3)/3⌋ forever: depth 30 => +9 orbs => 4.0x the depth-3 baseline on
+  // form 1. That is a grind wall, not difficulty — the fight length grows without limit while the
+  // player's damage does not. Capped at +3 (reached at depth 12) => <= 2.0x baseline, the bound
+  // BF9 pins. Past depth 12, difficulty must come from the other axes (enemy speed, spawn danger,
+  // mutators), never from an ever-longer orb chore.
+  const DEPTH_BONUS_CAP = 3;
+  const depthBonus = depth => Math.min(DEPTH_BONUS_CAP, Math.max(0, Math.floor((depth - 3) / 3)));
 
   function newBossState(def, depth) {
     return { form: 0, orbs: def.forms[0].orbs + depthBonus(depth), depth, staggered: false, defeated: false };

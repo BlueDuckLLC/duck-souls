@@ -80,8 +80,24 @@ check('BF7', '>= 70% of boss damage to the player is telegraphed IN THE FIGHT (n
   false, false, 'UNMEASURED: no boss-damage event log in bot.js; BF1 proves the FLOOR, not fight-time behavior');
 check('BF8', 'No degenerate boss cheese (exploit seat best strategy <= 15% better than intended)',
   false, false, 'UNMEASURED: no boss exploit-seat run; dash-spam / corner-camp untested against the fight');
-check('BF9', 'Depth scaling stays fair (deeper = more orbs, telegraph floor still holds)',
-  false, false, 'UNMEASURED behaviorally: depthBonus() adds orbs (structural), but no bot run proves the deeper fight is winnable-and-fair');
+// BF9 is now MEASURED (structural, bot-independent). Threshold PINNED 2026-07-21 before
+// measurement: orb growth bounded at <= 2.0x the depth-3 baseline for all depth <= 30,
+// AND the telegraph floor still holds at depth. Executes the real newBossState/telegraph.
+{
+  const def = { forms: [{ orbs: 3 }, { orbs: 4 }, { orbs: 5 }] };  // leviathan form set
+  const base = Boss.newBossState(def, 3).orbs;                      // depth-3 baseline
+  let worst = 0, worstDepth = 0;
+  for (let d = 3; d <= 30; d++) {
+    const r = Boss.newBossState(def, d).orbs / base;
+    if (r > worst) { worst = r; worstDepth = d; }
+  }
+  // the telegraph floor must survive depth too (form is capped at 2 inside telegraph())
+  let minTele = Infinity;
+  for (let form = 0; form < 12; form++) minTele = Math.min(minTele, Boss.telegraph(0.4, form, true));
+  const ok = worst <= 2.0 && minTele >= Boss.TELEGRAPH_FLOOR - 1e-9;
+  check('BF9', 'Depth scaling is BOUNDED (orbs cannot grow forever) + floor holds', true, ok,
+    `orbs depth3=${base} -> worst ${worst.toFixed(2)}x at depth ${worstDepth} (cap 2.0x); min telegraph across 12 forms = ${minTele.toFixed(3)}s`);
+}
 
 // --- report
 console.log('\nBOSS_FUN RED — DUCK SOULS boss fight (TES-7194)\n');
