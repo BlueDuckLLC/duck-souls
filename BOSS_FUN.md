@@ -18,10 +18,36 @@ failing test).
 | BF3 | Gravity is always out-walkable | max `\|pullVector\|` / moveSpeed | ≤ 50% | execute boss.js |
 | BF4 | Summoner cannot softlock | `canSummon` at cap / early + `addsGate` when clear | no-spam & orbs-open | execute boss.js |
 | BF5 | Each form earns the hit a DISTINCT way | 6 per-mechanic gates present & non-identical verdicts | present & vary | execute boss.js |
-| BF6 | A competent player reaches form 2 in a FAIR window | bot time-to-form-2 in target band | ∈ band (TBD) | **bot fights boss** |
-| BF7 | ≥70% of boss damage is telegraphed IN THE FIGHT | bot boss-damage events w/ telegraphed flag | ≥ 0.70 | **bot fights boss** |
+| BF6 | A competent player reaches form 2 in a FAIR window | median time-to-form-2 over boss encounters | **∈ [6.0s, 35.0s]** | **bot fights boss** |
+| BF7 | ≥70% of boss damage is telegraphed IN THE FIGHT | boss-damage events w/ telegraphed flag | ≥ 0.70 | **bot fights boss** |
 | BF8 | No degenerate boss cheese | exploit-seat best strategy vs intended | ≤ 15% better | **exploit seat vs boss** |
-| BF9 | Depth scaling stays fair (winnable + floors hold) | bot win-rate & telegraph-hold at depth ≥ 6 | winnable & fair | **bot fights boss** |
+| BF9 | Depth scaling is BOUNDED (orbs can't grow forever) | `orbs(depth)` vs `orbs(depth 3)`, all depth ≤ 30 + telegraph floor holds | **≤ 2.0×** and floor ≥ 0.25s | structural (bot-independent) |
+
+## ⚖️ Thresholds PINNED BEFORE MEASUREMENT (2026-07-21) — pre-registration
+
+Committed *before* any bot run, so the test cannot be fitted to the result.
+
+- **BF6 band [6.0s, 35.0s] is derived from the mechanic, not from data.** Leviathan form 1 = 3 orbs,
+  and orbs are vulnerable ONLY during `calm` — `ACTIVE_LEN 2.2s + calm 1.5s = 3.7s` period with a
+  1.5s vulnerable window. Breaking 3 orbs needs ≥2 calm windows ⇒ a **theoretical floor of ~7s**;
+  6.0s is set just under it so a sub-mechanical clear (a cheese) trips the LOW side. Upper bound
+  35s ≈ 3× the floor + slack: past that the first form is grind, not fight.
+- **BF9 replaces the phrase "winnable & fair" with a number.** `depthBonus = ⌊(depth−3)/3⌋` is
+  currently **UNCAPPED** — depth 12 ⇒ 2× base orbs, depth 30 ⇒ 4×, forever. The claim under test is
+  that orb growth is bounded at ≤2.0×. This may legitimately go RED and stay red until the GAME
+  changes (a cap), never the threshold.
+
+## 🚧 Instrument-validity gates (a verdict is void unless these hold)
+
+The boss-fighting bot **is the instrument**; its skill silently sets BF6/BF8. Guards:
+1. **Competence floor.** If the boss-instrumented bot no longer reaches floor 3–5 on the BASE game
+   (autotune's standing competence target), the *instrument* regressed — its boss verdicts are noise
+   and must be reported as void, not as a game problem.
+2. **Minimum sample.** A BF6/BF7/BF8 verdict requires **≥5 boss encounters** and **≥10 boss-damage
+   events**. Below that ⇒ **UNMEASURED**, never PASS. (A zero-sample green is the "caps sat above
+   saturation" bug: vacuously true, worthless.)
+3. **No oracle bot.** The bot may not read boss internals a player can't see (exact orb timers,
+   next-attack index). It reacts to the same telegraphs a human gets, or BF6 understates difficulty.
 
 ## RED transcript — 2026-07-20 (`boss_fun_red.js` → `=== 4 failed, 5 passed ===`)
 
