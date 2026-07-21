@@ -90,6 +90,10 @@
     return { vx: dx / d * s, vy: dy / d * s, frac };
   }
 
+  // --- 5b. GRAVITY AS LANGUAGE (STUB — RED). Additive vocabulary: each form adds ONE rule.
+  function fieldRules() { return []; }
+  function fieldVector() { return { vx: 0, vy: 0 }; }
+
   // --- 6. DUO (gemini wardens): two twins, each its OWN Boss state. A shared form advances
   // only when BOTH are staggered together; otherwise the standing twin revives its partner.
   function duoBothStaggered(a, b) { return !!(a && b && a.staggered && b.staggered); }
@@ -107,7 +111,7 @@
     // per-mechanic gates + tunables
     envPhase, envVulnerable, mirrorDesynced, mirrorDelay,
     addsGate, canSummon, refractValid, beamCadence,
-    pullSign, pullInverting, pullVector, duoBothStaggered,
+    pullSign, pullInverting, pullVector, duoBothStaggered, fieldRules, fieldVector,
     telegraph, TELEGRAPH_FLOOR,
   };
 });

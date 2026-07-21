@@ -123,6 +123,47 @@ const def = { id: 'test', forms: [{ orbs: 3 }, { orbs: 4 }, { orbs: 5 }] };
   t('telegraph: enrage shortens a long windup but not below floor', B.telegraph(0.6, 2, true) < 0.6 && B.telegraph(0.6, 2, true) >= 0.25);
 }
 
+// ===================================================================================
+// GRAVITY AS LANGUAGE (Blow: "the environment IS the language"; Witness-style additive
+// vocabulary). The Maw's field is the one grammar both boss and player speak. Each form adds
+// EXACTLY ONE new rule to the previous — and every added rule must be a REAL effect, not decor.
+// ===================================================================================
+{
+  const r0 = B.fieldRules(0), r1 = B.fieldRules(1), r2 = B.fieldRules(2);
+  t('field: form 0 speaks one rule (the pull)', Array.isArray(r0) && r0.length === 1 && r0[0] === 'pull');
+  t('field: form 1 keeps every form-0 rule', r0.every(x => r1.includes(x)));
+  t('field: form 1 adds EXACTLY one new rule', r1.length === r0.length + 1);
+  t('field: form 2 keeps every form-1 rule', r1.every(x => r2.includes(x)));
+  t('field: form 2 adds EXACTLY one new rule', r2.length === r1.length + 1);
+}
+// each added rule must CHANGE the field somewhere — an advertised rule that alters nothing is
+// filler (Blow cuts filler; our no-op-guard law says an advertised effect must be a real effect)
+{
+  const sample = (form) => { const o = []; for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; const v = B.fieldVector(80 + Math.cos(a) * 20, 45 + Math.sin(a) * 14, 80, 45, 14, form, 1.3); o.push(v.vx.toFixed(4) + ',' + v.vy.toFixed(4)); } return o.join('|'); };
+  const f0 = sample(0), f1 = sample(1), f2 = sample(2);
+  t('field: form 1 rule is REAL (field differs from form 0)', f1 !== f0);
+  t('field: form 2 rule is REAL (field differs from form 1)', f2 !== f1);
+}
+// the fairness cap survives the new grammar: never more than 50% of move speed, any form/point
+{
+  let worst = 0;
+  for (let form = 0; form < 3; form++) for (let i = 0; i < 40; i++) {
+    const a = i / 40 * Math.PI * 2, v = B.fieldVector(80 + Math.cos(a) * 30, 45 + Math.sin(a) * 20, 80, 45, 10, form, i * 0.37);
+    worst = Math.max(worst, Math.hypot(v.vx, v.vy));
+  }
+  t('field: magnitude never exceeds 50% of move speed', worst <= 5 + 1e-6);
+}
+// the base rule really is a PULL toward the boss (form 0, player left of boss -> pushed right)
+{
+  const v = B.fieldVector(40, 45, 80, 45, 10, 0, 0);
+  t('field: form 0 pulls toward the boss', v.vx > 0 && Math.abs(v.vy) < 1e-6);
+}
+// the tell is ENVIRONMENTAL and PRECEDES the change (read the physics, not an animation)
+{
+  t('field: telegraph fires in the windup before the flip', B.pullInverting(3.6, 4.0) === true);
+  t('field: no telegraph mid-phase (it means something)', B.pullInverting(1.0, 4.0) === false);
+}
+
 console.log(`\nboss: ${pass} passed, ${fail} failed`);
 console.log(`=== ${fail} failed, ${pass} passed in 0.00s ===`);
 process.exit(fail ? 1 : 0);
