@@ -1,0 +1,25 @@
+
+BOSS_FUN RED — DUCK SOULS boss fight (TES-7194)
+
+  PASS            BF1  Every boss windup telegraphs >= 250ms at max enrage
+                    min telegraph across forms/enrage = 0.250s (floor 0.25)
+  PASS            BF2  Leviathan calm window >= 0.8s fairness floor (all forms)
+                    min calmLen across forms = 0.80s
+  PASS            BF3  Gravity pull <= 50% move speed (always out-walkable)
+                    max pull fraction of move speed = 50.0%
+  PASS            BF4  Summoner cannot softlock (cap + cooldown gate; orbs open when clear)
+                    spam@cap=false earlyResummon=false orbsOpenWhenClear=true
+  PASS            BF5  Each boss form earns the hit a distinct way (6 gates, non-identical)
+                    6 mechanic gates present=true; verdicts vary=true
+  RED/UNMEASURED  BF6  A competent player reaches form 2 in a fair window (not trivial, not impossible)
+                    UNMEASURED: bot.js does not enter/fight the boss room — no time-to-form-2 metric exists
+  RED/UNMEASURED  BF7  >= 70% of boss damage to the player is telegraphed IN THE FIGHT (not just in the constant)
+                    UNMEASURED: no boss-damage event log in bot.js; BF1 proves the FLOOR, not fight-time behavior
+  RED/UNMEASURED  BF8  No degenerate boss cheese (exploit seat best strategy <= 15% better than intended)
+                    UNMEASURED: no boss exploit-seat run; dash-spam / corner-camp untested against the fight
+  RED/UNMEASURED  BF9  Depth scaling stays fair (deeper = more orbs, telegraph floor still holds)
+                    UNMEASURED behaviorally: depthBonus() adds orbs (structural), but no bot run proves the deeper fight is winnable-and-fair
+
+  structural fairness measurable now · behavioral fun UNMEASURED (bot never fights the boss)
+
+=== 4 failed, 5 passed ===

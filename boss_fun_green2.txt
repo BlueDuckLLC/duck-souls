@@ -1,0 +1,13 @@
+
+BOSS_FUN RED r2 — identity & variety (DUCK SOULS, TES-7194)
+
+  PASS  BF10  Boss roster is actually varied across floors
+        7 bosses defined [leviathan,inquisitor,king,abbot,prism,maw,duo]; 7 distinct drawn over 50 runs x 8 floors
+  PASS  BF11  Which boss you fight is legible DURING the fight (persistent nameplate)
+        executed drawHud: name+FORM drawn with boss=true; probe red-capable (silent w/o boss)=true
+  PASS  BF12  Every boss has its own music theme on disk
+        7/7 themes present
+  PASS  BF13  Each boss gets a pre-fight cutscene beat (pool break + name + tagline)
+        poolBreak=true; name shown=true; tagline shown=true
+
+=== 0 failed, 4 passed ===

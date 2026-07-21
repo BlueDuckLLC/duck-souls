@@ -3776,6 +3776,19 @@ function drawHud() {
   A.text(52, 0, 'SCORE ' + liveScore(), 2);
   A.text(66, 0, 'K ' + G.run.kills, 1, 0.7);
   A.text(88, 2, 'SEED ' + G.seed.toString(16).toUpperCase() + '  BEST ' + G.best, 1, 0.4);
+  // BOSS NAMEPLATE (BF11, 2026-07-21). Seven bosses share ONE arena verb (break the orbs), so
+  // without a persistent identity channel they read as "the boss" — the name was a 3s toast and
+  // a 5s cutscene, then nothing. Shape first (bars/asterisks), color second: the form bar and orb
+  // count carry the meaning on their own, ci is decoration. Drawn every frame the boss lives.
+  if (G.boss && G.boss.def && G.boss.st && !G.boss.st.defeated) {
+    const bd = G.boss.def, bs = G.boss.st, nf = bd.forms.length;
+    let form = '';
+    for (let i = 0; i < nf; i++) form += i < bs.form ? '#' : (i === bs.form ? '>' : '-');
+    let orbs;
+    if (G.boss.twins) orbs = G.boss.twins.map((t, i) => (i ? 'R' : 'L') + (t.st.staggered ? '~' : '*'.repeat(Math.max(0, t.st.orbs)))).join(' ');
+    else orbs = bs.staggered ? 'STAGGERED' : 'ORB ' + '*'.repeat(Math.max(0, bs.orbs));
+    A.textC(1, bd.name + '   FORM [' + form + ']   ' + orbs, bd.ci, 0.9);
+  }
   // pantheon strip: glyph lit if boon, barred if curse (shape = second channel)
   let x = 96;
   for (const g of P.GODS) {
