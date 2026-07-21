@@ -1820,9 +1820,9 @@ function bossMechTick(b, dt) {
     }
     return;
   }
-  if (m === 'gravity') { // constant pull (<=50% move speed); dash overpowers it (escape valve)
-    const pv = Boss.pullVector(p.x, p.y, b.x, b.y, spd, b.st.form, b.t);
-    if (p.dashT <= 0) { p.x += pv.vx * dt; p.y += pv.vy * dt; }
+  if (m === 'gravity') { // the FIELD is the grammar: F0 pull -> F1 +competing well -> F2 +rotation
+    const fv = Boss.fieldVector(p.x, p.y, b.x, b.y, spd, b.st.form, b.t);
+    if (p.dashT <= 0) { p.x += fv.vx * dt; p.y += fv.vy * dt; } // dash still overpowers it
     b.inverting = Boss.pullInverting(b.t);
     return;
   }
@@ -1842,7 +1842,19 @@ function bossMechDraw(b) {
     return;
   }
   if (m === 'refractor') { for (const be of (b.beams || [])) { const c = be.reflected ? 3 : 4; px(be.x, be.y, c, 1); px(be.x - be.vx * 0.03, be.y - be.vy * 0.03, c, 0.5); } return; }
-  if (m === 'gravity' && b.inverting) { for (let a = 0; a < 14; a++) { const an = a / 14 * Math.PI * 2; px(b.x + Math.cos(an) * 18, b.y + Math.sin(an) * 12, 5, 0.5 + 0.5 * Math.sin(G.t * 20)); } return; }
+  if (m === 'gravity') {
+    // THE ENVIRONMENT IS THE LANGUAGE: draw the field itself as an arrow grid, so you READ the
+    // physics instead of an animation. During the telegraph the arrows brighten AND lean into the
+    // field as it will be after the flip — the tell precedes the force (Souls' promise, kept).
+    const tele = b.inverting, tt = b.t + (tele ? 0.5 : 0);
+    for (let gx = X0 + 6; gx < X1 - 4; gx += 9) for (let gy = Y0 + 5; gy < Y1 - 4; gy += 6) {
+      const v = Boss.fieldVector(gx, gy, b.x, b.y, 14, b.st.form, tt);
+      const mag = Math.hypot(v.vx, v.vy) || 1, ux = v.vx / mag, uy = v.vy / mag;
+      const gl = Math.abs(ux) > Math.abs(uy) ? (ux > 0 ? '>' : '<') : (uy > 0 ? 'v' : '^');
+      A.text(gx, gy, gl, tele ? 5 : 7, tele ? 0.5 + 0.35 * Math.sin(G.t * 18) : 0.2);
+    }
+    return;
+  }
   if (m === 'summoner') { for (const e of (G.enemies || [])) { if (e.dead) continue; if (e.x < X0 || e.x > X1 || e.y < Y0 || e.y > Y1) A.text(Math.max(X0 + 1, Math.min(X1 - 1, e.x)), Math.max(Y0 + 1, Math.min(Y1 - 1, e.y)), '!', 5, 0.9); } return; }
 }
 
