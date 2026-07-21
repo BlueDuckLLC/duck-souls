@@ -21,7 +21,6 @@ const HERE = new URL('.', import.meta.url).pathname;
 // --- the tunable subset the tuner is allowed to move (name -> [path, lo, hi, step]) ---
 const KNOBS = {
   insetScale: ['room.insetScale', 0.7, 1.6, 0.12],
-  mutRoll: ['room.mutRoll', 0.4, 0.85, 0.08],
   dangerBase: ['spawn.dangerBase', 1, 5, 0.5],
   dangerSlope: ['spawn.dangerSlope', 0.8, 2.2, 0.2],
   densityDiv: ['spawn.densityDiv', 180, 360, 24],
@@ -33,21 +32,28 @@ const getP = (o, path) => path.split('.').reduce((a, k) => a[k], o);
 const setP = (o, path, v) => { const ks = path.split('.'); const last = ks.pop(); const t = ks.reduce((a, k) => (a[k] = a[k] || {}, a[k]), o); t[last] = v; };
 
 // funProxy from aggregated bot metrics: a flow channel (both too-easy and too-hard hurt).
+// REPAIRED 2026-07-21 (see METRICS.md §2). Three defects fixed:
+//  - difficulty read avgFloor = the floor the bot DIED on, so a DEATHLESS session scored 1 and
+//    ate the max too-hard penalty. The objective literally rewarded a corpse getting deep.
+//    Now reads maxDepth = floor REACHED.
+//  - W.hyp * funGreen was constant across every acceptable candidate (funGreen is ALSO the hard
+//    accept gate), i.e. dead weight in a ranking function. Removed from the objective, kept as gate.
+//  - W.variety PAID CASH FOR MUTATOR COUNT. A fun objective that can buy points by adding content
+//    turns the game into a pile — and the only ACCEPT in ledger history was exactly that
+//    (mutRoll 0.65->0.73). Removed, along with the mutRoll knob. Variety stays a REPORTED diagnostic.
+// The dead `inBand` helper (defined, never called) was deleted.
 function funProxy(m, W, T) {
-  const inBand = (v, lo, hi) => v >= lo && v <= hi ? 1 : Math.max(0, 1 - Math.min(Math.abs(v - lo), Math.abs(v - hi)) / Math.max(1, hi));
-  const difficulty = m.avgFloor; // deeper = easier for a competent bot; want it in [floorLo, floorHi]
+  const difficulty = m.maxDepth; // floors REACHED — want it inside [floorLo, floorHi]
   const diffPenalty = difficulty < T.floorLo ? (T.floorLo - difficulty) : difficulty > T.floorHi ? (difficulty - T.floorHi) : 0;
-  return W.hyp * (m.funGreen ? 1 : 0)
-    + W.cadence * (m.novelPerMin >= T.novelPerMin ? 1 : m.novelPerMin / T.novelPerMin)
+  return W.cadence * (m.novelPerMin >= T.novelPerMin ? 1 : m.novelPerMin / T.novelPerMin)
     + W.decision * Math.min(1, m.decisionPct / 0.4)
-    + W.variety * Math.min(1, m.variety / 10)
     - W.difficulty * diffPenalty
     + 0.3 * (m.telegraphPct >= T.telegraphPct ? 1 : 0);
 }
 
 async function evalCandidate(browser, params, seeds) {
   const b64 = Buffer.from(JSON.stringify(params)).toString('base64');
-  const agg = { deaths: 0, floors: 0, novel: 0, dur: 0, choices: 0, rooms: 0, muts: new Set(), tele: 0, dmg: 0, runs: 0 };
+  const agg = { deaths: 0, floors: 0, maxDepth: 0, novel: 0, dur: 0, choices: 0, rooms: 0, muts: new Set(), tele: 0, dmg: 0, runs: 0 };
   for (const seed of seeds) {
     const page = await browser.newPage();
     await page.goto(`http://localhost:${PORT}/?bot=1&params=${encodeURIComponent(b64)}`, { waitUntil: 'domcontentloaded' });
@@ -59,7 +65,10 @@ async function evalCandidate(browser, params, seeds) {
     await page.close();
     if (!L) continue;
     agg.runs++; agg.deaths += L.deaths.length;
+    // REACHED, not died-on (METRICS.md 2.1). Keep agg.floors as a reported diagnostic.
     agg.floors += Math.max(...(L.deaths.map(d => d.floor).concat([1])));
+    agg.maxDepth += Math.max(L.maxDepth || 1, ...(L.deaths.map(d => d.floor).concat([1])));
+    agg.roomsSeenTotal = (agg.roomsSeenTotal || 0) + (L.roomsSeen || 0);
     agg.novel += L.novel.length; agg.dur += (L.events.length ? L.events[L.events.length - 1].t : 22);
     agg.choices += L.choices; agg.rooms += L.roomsSeen;
     Object.keys(L.mutsSeen).forEach(k => agg.muts.add(k));
@@ -68,7 +77,9 @@ async function evalCandidate(browser, params, seeds) {
   const r = Math.max(1, agg.runs);
   return {
     funGreen: funTestGreen(params),
-    avgFloor: agg.floors / r,
+    avgFloor: agg.floors / r,          // diagnostic only (death-floor)
+    maxDepth: agg.maxDepth / r,        // OBJECTIVE input: floors REACHED
+    roomsSeen: (agg.roomsSeenTotal || 0) / r,   // liveness canary
     novelPerMin: agg.novel / (agg.dur / 60 || 1),
     decisionPct: agg.rooms ? agg.choices / agg.rooms : 0,
     variety: agg.muts.size,
@@ -104,7 +115,24 @@ async function main() {
   let best = JSON.parse(JSON.stringify(P));
   let baseM = await evalCandidate(browser, best, proposeSeeds);
   let baseScore = funProxy(baseM, W, T);
-  console.log(`baseline funProxy=${baseScore.toFixed(3)}  floor=${baseM.avgFloor.toFixed(1)} novel/min=${baseM.novelPerMin.toFixed(1)} decision=${(baseM.decisionPct * 100 | 0)}% variety=${baseM.variety} tele=${(baseM.telegraphPct * 100 | 0)}% green=${baseM.funGreen}`);
+  console.log(`baseline funProxy=${baseScore.toFixed(3)}  reached=${baseM.maxDepth.toFixed(1)} (died-on=${baseM.avgFloor.toFixed(1)}) rooms=${baseM.roomsSeen.toFixed(1)} novel/min=${baseM.novelPerMin.toFixed(1)} decision=${(baseM.decisionPct * 100 | 0)}% variety=${baseM.variety} tele=${(baseM.telegraphPct * 100 | 0)}% green=${baseM.funGreen}`);
+
+  // ===== LIVENESS / COMPETENCE DEADMAN (METRICS.md §4, added 2026-07-21) =====
+  // Autotune published epochs for an unknown period while bot.js sat on the title menu (it
+  // pressed 'q' at a menu that stopped accepting 'q'). Nothing checked the instrument was alive,
+  // so a generator hill-climbed against a grader that could not see the screen. An epoch that
+  // cannot see the game must NOT be allowed to have an opinion about it: exit non-zero, and
+  // write NO ledger row — a refusal must never look like a result.
+  const liveFail = baseM.roomsSeen < 1;
+  const compFail = baseM.maxDepth < T.floorLo;
+  if (liveFail || compFail) {
+    await browser.close();
+    console.error(`\n🔴 DEADMAN — refusing to publish an epoch.`);
+    if (liveFail) console.error(`   LIVENESS: baseline roomsSeen=${baseM.roomsSeen.toFixed(2)} — the bot never entered play.`);
+    if (compFail) console.error(`   COMPETENCE: baseline floors REACHED=${baseM.maxDepth.toFixed(2)} < floorLo=${T.floorLo} — the instrument cannot reach the target band, so it cannot judge it.`);
+    console.error(`   No ledger row written, params.js untouched. Fix the bot, then re-run.`);
+    process.exit(2);
+  }
 
   const knobNames = Object.keys(KNOBS);
   const log = [`\n## Epoch ${new Date().toISOString().slice(0, 10)} — baseline ${baseScore.toFixed(3)}`];
