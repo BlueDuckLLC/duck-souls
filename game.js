@@ -4031,6 +4031,10 @@ function frame(now) {
   fpsEma = fpsEma * 0.95 + (1 / Math.max(dt, 1e-4)) * 0.05;
   window.__fps = Math.round(fpsEma);
   G.t += dt;
+  // TYPOGRAPHY DYNAMICS trigger: text deposits ON ARRIVAL, so the clock it measures against must
+  // restart whenever the screen changes. One wiring point, same shape as the BGM line below —
+  // without this, age is always huge, every pixel reads as settled, and the effect never shows.
+  if (G.state !== G._lastTextState) { G._lastTextState = G.state; G.textT0 = G.t; }
   // scene BGM: one wiring point — the manager owns the state->track map, mute, and crossfades,
   // and degrades silently if an audio file is absent (music.js).
   if (window.Music) { Music.setMuted(muted); Music.sync(G.state, G.boss && G.boss.def && G.boss.def.id, dt); }
